@@ -6,7 +6,7 @@ type Kind = "live" | "upcoming" | "recent";
 
 const STATUS: Record<Kind, { label: string; cls: string; style: React.CSSProperties }> = {
   live: { label: "直播中", cls: "text-white", style: { background: "linear-gradient(135deg, var(--accent-pink), var(--accent-pink-dark))" } },
-  upcoming: { label: "預定開台", cls: "text-accent-blue", style: { background: "var(--bg-accent-blue-muted)" } },
+  upcoming: { label: "預定開台", cls: "text-white", style: { background: "var(--accent-blue)" } },
   recent: { label: "已結束", cls: "text-text-secondary", style: { background: "var(--bg-surface-muted)" } },
 };
 
@@ -40,7 +40,8 @@ export default function StreamCard({ kind, stream, channel, nowMs }: {
       </div>
       <div className="mt-3 line-clamp-2 text-sm text-text-primary">{stream.title}</div>
       {stream.thumbnail && (
-        <img src={stream.thumbnail} alt="" loading="lazy" className="mt-3 aspect-video w-full rounded-xl object-cover" />
+        <img src={stream.thumbnail} alt="" loading="lazy" className="mt-3 aspect-video w-full rounded-xl object-cover"
+             onError={(e) => { e.currentTarget.style.display = "none"; }} />
       )}
       <div className="mt-2 flex items-center justify-between text-xs text-text-secondary">
         <span>{timeLabel(kind, stream, nowMs)}</span>

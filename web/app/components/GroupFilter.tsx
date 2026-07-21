@@ -16,7 +16,7 @@ export default function GroupFilter({ groups, selected, onToggle }: {
             aria-pressed={on}
             className="rounded-pill px-3 py-1 text-xs font-medium transition-colors"
             style={on
-              ? { background: "linear-gradient(135deg, var(--accent-pink-light), var(--accent-blue-light))", color: "var(--text-on-accent)" }
+              ? { background: "linear-gradient(135deg, var(--accent-pink), var(--accent-blue))", color: "var(--text-on-accent)" }
               : { background: "var(--bg-surface-muted)", color: "var(--text-secondary)" }}
           >
             {g}

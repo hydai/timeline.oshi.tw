@@ -21,6 +21,18 @@ describe("Home page", () => {
     await waitFor(() => expect(screen.getByText(/載入失敗/)).toBeInTheDocument());
   });
 
+  it("retries after an error and loads the river", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("no", { status: 500 })));
+    render(<Home />);
+    await waitFor(() => expect(screen.getByText(/載入失敗/)).toBeInTheDocument());
+    const retryButton = screen.getByRole("button", { name: "重試" });
+
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(fixture), { status: 200 })));
+    await userEvent.click(retryButton);
+
+    await waitFor(() => expect(screen.getByLabelText("搜尋 VTuber")).toBeInTheDocument());
+  });
+
   it("filters the river by search query", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(fixture), { status: 200 })));
     render(<Home />);

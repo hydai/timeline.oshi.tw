@@ -5,7 +5,7 @@ export function filterTimeline(items: TimelineItem[], query: string, selectedGro
   const groups = new Set(selectedGroups);
   return items.filter((it) => {
     if (q) {
-      const name = it.channel.name.toLowerCase();
+      const name = (it.channel.name ?? "").toLowerCase();
       const handle = (it.channel.handle ?? "").toLowerCase();
       if (!name.includes(q) && !handle.includes(q)) return false;
     }

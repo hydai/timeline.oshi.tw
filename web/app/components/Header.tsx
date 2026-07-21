@@ -1,6 +1,7 @@
 import ThemeToggle from "./ThemeToggle";
+import { formatRelativeTime } from "@/lib/time";
 
-export default function Header({ updatedAt }: { updatedAt: string }) {
+export default function Header({ updatedAt, nowMs }: { updatedAt: string; nowMs: number }) {
   return (
     <header className="mb-6 flex items-center justify-between">
       <div>
@@ -8,7 +9,7 @@ export default function Header({ updatedAt }: { updatedAt: string }) {
             style={{ backgroundImage: "linear-gradient(135deg, var(--accent-pink), var(--accent-blue))", WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent" }}>
           timeline.oshi.tw
         </h1>
-        {updatedAt && <p className="text-xs text-text-tertiary">資料更新於 {updatedAt}</p>}
+        {updatedAt && <p className="text-xs text-text-tertiary">資料更新於 {formatRelativeTime(updatedAt, nowMs)}</p>}
       </div>
       <ThemeToggle />
     </header>
