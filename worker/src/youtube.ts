@@ -1,4 +1,4 @@
-import type { StreamRecord, StreamStatus } from "./types";
+import type { StreamRecord, StreamStatus, ChannelMeta } from "./types";
 
 const YT_API = "https://www.googleapis.com/youtube/v3";
 
@@ -62,6 +62,44 @@ export async function fetchVideoDetails(apiKey: string, referer: string, ids: st
     if (!res.ok) throw new Error(`videos.list failed (${res.status}): ${await res.text()}`);
     const data = (await res.json()) as VideosResponse;
     for (const item of data.items ?? []) out.push(normalizeVideo(item));
+  }
+  return out;
+}
+
+export interface YtChannelItem {
+  id: string;
+  snippet: {
+    title: string;
+    thumbnails: { default?: { url: string }; medium?: { url: string }; high?: { url: string } };
+  };
+  contentDetails?: { relatedPlaylists?: { uploads?: string } };
+}
+
+interface ChannelsResponse { items?: YtChannelItem[] }
+
+export function normalizeChannel(item: YtChannelItem): ChannelMeta {
+  const t = item.snippet.thumbnails;
+  return {
+    channelId: item.id,
+    name: item.snippet.title,
+    avatarUrl: t.high?.url ?? t.medium?.url ?? t.default?.url ?? "",
+    uploadsPlaylist: item.contentDetails?.relatedPlaylists?.uploads ?? uploadsPlaylistId(item.id),
+  };
+}
+
+/** Batch fetch channel metadata. 1 quota unit per 50 ids. */
+export async function fetchChannelMeta(apiKey: string, referer: string, ids: string[]): Promise<ChannelMeta[]> {
+  const out: ChannelMeta[] = [];
+  for (let i = 0; i < ids.length; i += 50) {
+    const chunk = ids.slice(i, i + 50);
+    const url = new URL(`${YT_API}/channels`);
+    url.searchParams.set("part", "snippet,contentDetails");
+    url.searchParams.set("id", chunk.join(","));
+    url.searchParams.set("key", apiKey);
+    const res = await fetch(url.toString(), { headers: { Referer: referer } });
+    if (!res.ok) throw new Error(`channels.list failed (${res.status}): ${await res.text()}`);
+    const data = (await res.json()) as ChannelsResponse;
+    for (const item of data.items ?? []) out.push(normalizeChannel(item));
   }
   return out;
 }
