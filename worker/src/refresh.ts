@@ -2,7 +2,7 @@ import type { ChannelMeta, Env, Milestone, RosterEntry, Snapshot, StreamRecord }
 import type { TwVtuber } from "./twvtuber";
 import {
   getActiveVideoIds, getStaleChannels, listEnabledChannels, listStreamsByStatus,
-  pruneEndedBefore, setChannelMeta, upsertStream,
+  pruneEndedBefore, setChannelMetasBatch, upsertStreamsBatch,
 } from "./db";
 import { indexRosterByYoutubeId } from "./twvtuber";
 import { buildSnapshot } from "./snapshot";
@@ -46,9 +46,9 @@ export async function heavyRefresh(env: Env, deps: RefreshDeps): Promise<Snapsho
 
   // 2. Confirm status via videos.list; upsert those on tracked channels.
   if (candidates.size > 0) {
-    for (const s of await deps.fetchVideoDetails([...candidates])) {
-      if (trackedIds.has(s.channelId)) await upsertStream(env.DB, s, nowIso);
-    }
+    const details = await deps.fetchVideoDetails([...candidates]);
+    const tracked = details.filter((s) => trackedIds.has(s.channelId));
+    await upsertStreamsBatch(env.DB, tracked, nowIso);
   }
 
   // 3. Prune ended older than 7 days.
@@ -57,9 +57,8 @@ export async function heavyRefresh(env: Env, deps: RefreshDeps): Promise<Snapsho
   // 4. Refresh stale channel metadata (name/avatar/uploads).
   const stale = await getStaleChannels(env.DB, new Date(nowMs - 7 * DAY).toISOString());
   if (stale.length > 0) {
-    for (const m of await deps.fetchChannelMeta(stale.map((c) => c.channel_id))) {
-      await setChannelMeta(env.DB, m, nowIso);
-    }
+    const metas = await deps.fetchChannelMeta(stale.map((c) => c.channel_id));
+    await setChannelMetasBatch(env.DB, metas, nowIso);
   }
 
   // 5. twvtuber join — tolerant (design §10).
@@ -90,9 +89,9 @@ export async function lightRefresh(env: Env, deps: RefreshDeps): Promise<Snapsho
   const activeIds = await getActiveVideoIds(env.DB, new Date(nowMs - DAY).toISOString());
   if (activeIds.length > 0) {
     const trackedIds = new Set((await listEnabledChannels(env.DB)).map((c) => c.channel_id));
-    for (const s of await deps.fetchVideoDetails(activeIds)) {
-      if (trackedIds.has(s.channelId)) await upsertStream(env.DB, s, nowIso);
-    }
+    const details = await deps.fetchVideoDetails(activeIds);
+    const tracked = details.filter((s) => trackedIds.has(s.channelId));
+    await upsertStreamsBatch(env.DB, tracked, nowIso);
   }
   await pruneEndedBefore(env.DB, new Date(nowMs - 7 * DAY).toISOString());
 

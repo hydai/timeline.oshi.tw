@@ -1,5 +1,10 @@
 import type { ChannelMeta, ChannelRow, StreamRecord, StreamStatus } from "./types";
 
+// D1Database.batch() executes an array of prepared statements in a single
+// subrequest, but an unbounded array risks hitting D1/Workers limits — cap
+// each batch() call at this many statements and issue multiple round-trips.
+const BATCH_CHUNK_SIZE = 100;
+
 export async function upsertChannelId(db: D1Database, channelId: string, addedAt: string): Promise<void> {
   await db
     .prepare(
@@ -11,15 +16,27 @@ export async function upsertChannelId(db: D1Database, channelId: string, addedAt
     .run();
 }
 
+const SET_CHANNEL_META_SQL = `UPDATE channels
+   SET name = ?2, avatar_url = ?3, uploads_playlist = ?4, meta_checked_at = ?5
+   WHERE channel_id = ?1`;
+
+function bindSetChannelMeta(db: D1Database, meta: ChannelMeta, checkedAt: string): D1PreparedStatement {
+  return db
+    .prepare(SET_CHANNEL_META_SQL)
+    .bind(meta.channelId, meta.name, meta.avatarUrl, meta.uploadsPlaylist, checkedAt);
+}
+
 export async function setChannelMeta(db: D1Database, meta: ChannelMeta, checkedAt: string): Promise<void> {
-  await db
-    .prepare(
-      `UPDATE channels
-       SET name = ?2, avatar_url = ?3, uploads_playlist = ?4, meta_checked_at = ?5
-       WHERE channel_id = ?1`,
-    )
-    .bind(meta.channelId, meta.name, meta.avatarUrl, meta.uploadsPlaylist, checkedAt)
-    .run();
+  await bindSetChannelMeta(db, meta, checkedAt).run();
+}
+
+/** Same UPDATE as setChannelMeta, batched in one D1 round-trip per 100 rows. */
+export async function setChannelMetasBatch(db: D1Database, metas: ChannelMeta[], checkedAt: string): Promise<void> {
+  if (metas.length === 0) return;
+  for (let i = 0; i < metas.length; i += BATCH_CHUNK_SIZE) {
+    const chunk = metas.slice(i, i + BATCH_CHUNK_SIZE);
+    await db.batch(chunk.map((m) => bindSetChannelMeta(db, m, checkedAt)));
+  }
 }
 
 export async function listEnabledChannels(db: D1Database): Promise<ChannelRow[]> {
@@ -54,22 +71,34 @@ function rowToStream(r: Record<string, unknown>): StreamRecord {
   };
 }
 
-export async function upsertStream(db: D1Database, rec: StreamRecord, nowIso: string): Promise<void> {
-  await db
-    .prepare(
-      `INSERT INTO streams
-         (video_id, channel_id, status, title, thumbnail_url, scheduled_start,
-          actual_start, actual_end, concurrent_viewers, first_seen, last_checked)
-       VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?10)
-       ON CONFLICT(video_id) DO UPDATE SET
-         status = ?3, title = ?4, thumbnail_url = ?5, scheduled_start = ?6,
-         actual_start = ?7, actual_end = ?8, concurrent_viewers = ?9, last_checked = ?10`,
-    )
+const UPSERT_STREAM_SQL = `INSERT INTO streams
+     (video_id, channel_id, status, title, thumbnail_url, scheduled_start,
+      actual_start, actual_end, concurrent_viewers, first_seen, last_checked)
+   VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?10)
+   ON CONFLICT(video_id) DO UPDATE SET
+     status = ?3, title = ?4, thumbnail_url = ?5, scheduled_start = ?6,
+     actual_start = ?7, actual_end = ?8, concurrent_viewers = ?9, last_checked = ?10`;
+
+function bindUpsertStream(db: D1Database, rec: StreamRecord, nowIso: string): D1PreparedStatement {
+  return db
+    .prepare(UPSERT_STREAM_SQL)
     .bind(
       rec.videoId, rec.channelId, rec.status, rec.title, rec.thumbnailUrl,
       rec.scheduledStart, rec.actualStart, rec.actualEnd, rec.concurrentViewers, nowIso,
-    )
-    .run();
+    );
+}
+
+export async function upsertStream(db: D1Database, rec: StreamRecord, nowIso: string): Promise<void> {
+  await bindUpsertStream(db, rec, nowIso).run();
+}
+
+/** Same upsert as upsertStream, batched in one D1 round-trip per 100 rows. */
+export async function upsertStreamsBatch(db: D1Database, recs: StreamRecord[], nowIso: string): Promise<void> {
+  if (recs.length === 0) return;
+  for (let i = 0; i < recs.length; i += BATCH_CHUNK_SIZE) {
+    const chunk = recs.slice(i, i + BATCH_CHUNK_SIZE);
+    await db.batch(chunk.map((r) => bindUpsertStream(db, r, nowIso)));
+  }
 }
 
 export async function getActiveVideoIds(db: D1Database, sinceIso: string): Promise<string[]> {
