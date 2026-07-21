@@ -1,0 +1,31 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "timeline-streams-cache",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-05-21",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true },
+
+  "vars": {
+    "TWVTUBER_BASE": "https://twvtuber.oshi.tw",
+    "YT_REFERER": "https://timeline.oshi.tw/"
+  },
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "timeline-streams",
+      "database_id": "REPLACE_AFTER_D1_CREATE",
+      "migrations_dir": "./migrations"
+    }
+  ],
+
+  // Shared public data bucket (also serves data.oshi.tw/vod/*). We only ever
+  // write the streams/ prefix. data.oshi.tw is this bucket's R2 custom domain.
+  "r2_buckets": [
+    { "binding": "DATA_PUBLIC", "bucket_name": "prism-vod-export-public" }
+  ],
+
+  // Heavy full refresh 4×/day (0/6/12/18 UTC); light live-check every 30 min.
+  "triggers": { "crons": ["0 0,6,12,18 * * *", "*/30 * * * *"] }
+}

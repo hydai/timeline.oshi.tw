@@ -1,0 +1,12 @@
+node_modules/
+.wrangler/
+coverage/
+dist/
+.next/
+out/
+.DS_Store
+*.log
+.dev.vars
+.superpowers/
+# Planning docs stay untracked (project convention)
+docs/superpowers/
