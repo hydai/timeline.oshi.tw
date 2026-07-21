@@ -79,5 +79,45 @@ export async function heavyRefresh(env: Env, deps: RefreshDeps): Promise<Snapsho
   return snapshot;
 }
 
-// lightRefresh added in Task 11 (below).
+export async function lightRefresh(env: Env, deps: RefreshDeps): Promise<Snapshot | null> {
+  const last = await readSnapshot(env.DATA_PUBLIC);
+  if (!last) return null; // first run must be heavy
+
+  const nowIso = deps.now();
+  const nowMs = new Date(nowIso).getTime();
+
+  // Re-check only known-active video ids (cheap; no RSS, no twvtuber).
+  const activeIds = await getActiveVideoIds(env.DB, new Date(nowMs - DAY).toISOString());
+  if (activeIds.length > 0) {
+    const trackedIds = new Set((await listEnabledChannels(env.DB)).map((c) => c.channel_id));
+    for (const s of await deps.fetchVideoDetails(activeIds)) {
+      if (trackedIds.has(s.channelId)) await upsertStream(env.DB, s, nowIso);
+    }
+  }
+  await pruneEndedBefore(env.DB, new Date(nowMs - 7 * DAY).toISOString());
+
+  // Reconstruct roster/milestones/heavy-time from the last heavy snapshot.
+  const roster: Map<string, RosterEntry> = new Map();
+  for (const [cid, c] of Object.entries(last.channels)) {
+    if (c.twvtuber_id == null) continue; // no twvtuber match — leave unmapped, exactly like heavyRefresh
+    roster.set(cid, {
+      youtubeId: cid,
+      name: c.name,
+      group: c.group,
+      nationality: c.nationality,
+      youtubeSubs: c.youtube_subs,
+      avatar: c.avatar,
+      twvtuberId: c.twvtuber_id,
+    });
+  }
+  const rows = await listEnabledChannels(env.DB);
+  const streams = await collectAllStreams(env.DB);
+  const snapshot = buildSnapshot({
+    channels: rows, streams, roster, milestones: last.milestones,
+    nowIso, heavyRefreshedAtIso: last.heavy_refreshed_at,
+  });
+  await writeSnapshot(env.DATA_PUBLIC, snapshot);
+  return snapshot;
+}
+
 export { collectAllStreams, readSnapshot, DAY };

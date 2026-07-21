@@ -1,0 +1,88 @@
+import { describe, it, expect, beforeEach, vi } from "vitest";
+import { env } from "cloudflare:test";
+import { upsertChannelId, upsertStream } from "../src/db";
+import { lightRefresh, type RefreshDeps } from "../src/refresh";
+import { writeSnapshot } from "../src/r2";
+import type { Snapshot, StreamRecord } from "../src/types";
+
+const upcomingRec: StreamRecord = {
+  videoId: "U", channelId: "UCaaa", status: "upcoming", title: "預定", thumbnailUrl: "https://t",
+  scheduledStart: "2026-07-21T01:00:00Z", actualStart: null, actualEnd: null, concurrentViewers: null,
+};
+
+const lastHeavy: Snapshot = {
+  version: "1.0.0", generated_at: "2026-07-21T00:00:00Z", heavy_refreshed_at: "2026-07-21T00:00:00Z",
+  channels: { UCaaa: { name: "水樹", handle: "@mizuki", avatar: "https://a", group: "子午計畫", nationality: "TW", youtube_subs: 207000, twvtuber_id: "tw1" } },
+  groups: ["子午計畫"],
+  live: [], upcoming: [], recent: [],
+  milestones: [{ channelId: "UCaaa", type: "anniversary", date: "2026-10-31" }],
+};
+
+function deps(over: Partial<RefreshDeps> = {}): RefreshDeps {
+  return {
+    fetchRecentVideoIds: vi.fn(async () => []),
+    fetchVideoDetails: async () => [{ ...upcomingRec, status: "live", actualStart: "2026-07-21T01:05:00Z", concurrentViewers: 12 }],
+    fetchChannelMeta: vi.fn(async () => []),
+    fetchRoster: vi.fn(async () => []),
+    fetchMilestones: vi.fn(async () => []),
+    now: () => "2026-07-21T01:10:00Z",
+    ...over,
+  };
+}
+
+beforeEach(async () => {
+  await env.DB.exec("DELETE FROM streams");
+  await env.DB.exec("DELETE FROM channels");
+  await env.DATA_PUBLIC.delete("streams/v1/snapshot.json");
+  await upsertChannelId(env.DB, "UCaaa", "2026-07-01T00:00:00Z");
+  await upsertStream(env.DB, upcomingRec, "2026-07-21T00:00:00Z");
+  await writeSnapshot(env.DATA_PUBLIC, lastHeavy);
+});
+
+describe("lightRefresh", () => {
+  it("flips a known upcoming to live, preserving channels+milestones+heavy time", async () => {
+    const d = deps();
+    const snap = await lightRefresh(env, d);
+    expect(snap!.live.map((s) => s.videoId)).toEqual(["U"]);
+    expect(snap!.channels["UCaaa"]!.group).toBe("子午計畫");
+    expect(snap!.milestones.length).toBe(1);
+    expect(snap!.heavy_refreshed_at).toBe("2026-07-21T00:00:00Z");
+    expect(snap!.generated_at).toBe("2026-07-21T01:10:00Z");
+    // The light path must never call RSS or twvtuber deps — only fetchVideoDetails.
+    expect(d.fetchRecentVideoIds).not.toHaveBeenCalled();
+    expect(d.fetchChannelMeta).not.toHaveBeenCalled();
+    expect(d.fetchRoster).not.toHaveBeenCalled();
+    expect(d.fetchMilestones).not.toHaveBeenCalled();
+  });
+
+  it("returns null when no prior heavy snapshot exists", async () => {
+    await env.DATA_PUBLIC.delete("streams/v1/snapshot.json");
+    expect(await lightRefresh(env, deps())).toBeNull();
+  });
+
+  it("keeps twvtuber_id null for a tracked-but-unmatched channel instead of falling back to its YouTube id", async () => {
+    // UCbbb mirrors what heavyRefresh publishes for a channel with no twvtuber match:
+    // roster.get(cid) is undefined, so group/nationality/youtube_subs/twvtuber_id are all null.
+    const unmatchedRec: StreamRecord = {
+      videoId: "V1", channelId: "UCbbb", status: "live", title: "未配對頻道", thumbnailUrl: "https://t2",
+      scheduledStart: null, actualStart: "2026-07-21T01:00:00Z", actualEnd: null, concurrentViewers: 5,
+    };
+    await upsertChannelId(env.DB, "UCbbb", "2026-07-01T00:00:00Z");
+    await upsertStream(env.DB, unmatchedRec, "2026-07-21T00:00:00Z");
+    await writeSnapshot(env.DATA_PUBLIC, {
+      ...lastHeavy,
+      channels: {
+        ...lastHeavy.channels,
+        UCbbb: {
+          name: "UCbbb", handle: null, avatar: null,
+          group: null, nationality: null, youtube_subs: null, twvtuber_id: null,
+        },
+      },
+    });
+
+    const snap = await lightRefresh(env, deps());
+
+    expect(snap!.channels["UCbbb"]!.twvtuber_id).toBeNull();
+    expect(snap!.channels["UCbbb"]!.group).toBeNull();
+  });
+});
