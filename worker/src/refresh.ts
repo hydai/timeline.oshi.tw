@@ -54,21 +54,33 @@ export async function heavyRefresh(env: Env, deps: RefreshDeps): Promise<Snapsho
   // 3. Prune ended older than 7 days.
   await pruneEndedBefore(env.DB, new Date(nowMs - 7 * DAY).toISOString());
 
-  // 4. Refresh stale channel metadata (name/avatar/uploads).
+  // 4. Refresh stale channel metadata (name/avatar/uploads) — tolerant: it's
+  // enrichment only, so a channels.list failure must not discard the stream
+  // upserts done above (design §10).
   const stale = await getStaleChannels(env.DB, new Date(nowMs - 7 * DAY).toISOString());
   if (stale.length > 0) {
-    const metas = await deps.fetchChannelMeta(stale.map((c) => c.channel_id));
-    await setChannelMetasBatch(env.DB, metas, nowIso);
+    try {
+      const metas = await deps.fetchChannelMeta(stale.map((c) => c.channel_id));
+      await setChannelMetasBatch(env.DB, metas, nowIso);
+    } catch (e) {
+      console.warn(`channel meta refresh failed: ${(e as Error).message}`);
+    }
   }
 
-  // 5. twvtuber join — tolerant (design §10).
+  // 5. twvtuber join — tolerant (design §10): roster AND milestones may fail
+  // (rate-limit/network) without sinking the cycle.
   let roster: Map<string, RosterEntry> = new Map();
   try {
     roster = indexRosterByYoutubeId(await deps.fetchRoster());
   } catch (e) {
     console.warn(`roster failed: ${(e as Error).message}`);
   }
-  const milestones = await deps.fetchMilestones(trackedIds, nowIso);
+  let milestones: Milestone[] = [];
+  try {
+    milestones = await deps.fetchMilestones(trackedIds, nowIso);
+  } catch (e) {
+    console.warn(`milestones failed: ${(e as Error).message}`);
+  }
 
   // 6. Build + publish.
   const rows = await listEnabledChannels(env.DB);

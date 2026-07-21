@@ -44,4 +44,15 @@ describe("heavyRefresh", () => {
     expect(snap.live.length).toBe(1);
     expect(snap.channels["UCaaa"]!.group).toBeNull();
   });
+
+  it("tolerates milestone-fetch failure and still publishes (milestones empty)", async () => {
+    const snap = await heavyRefresh(env, deps({ fetchMilestones: async () => { throw new Error("timeout"); } }));
+    expect(snap.live.length).toBe(1);
+    expect(snap.milestones).toEqual([]);
+  });
+
+  it("tolerates channel-meta failure without discarding the cycle's stream data", async () => {
+    const snap = await heavyRefresh(env, deps({ fetchChannelMeta: async () => { throw new Error("500"); } }));
+    expect(snap.live.map((s) => s.videoId)).toEqual(["v1"]);
+  });
 });
