@@ -15,7 +15,7 @@
     {
       "binding": "DB",
       "database_name": "timeline-streams",
-      "database_id": "REPLACE_AFTER_D1_CREATE",
+      "database_id": "5017d24d-2329-43f2-a4fd-44c38f232d1e",
       "migrations_dir": "./migrations"
     }
   ],
