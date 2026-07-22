@@ -37,8 +37,13 @@ export default {
         return new Response("forbidden", { status: 403 });
       }
       const mode = url.searchParams.get("mode") === "light" ? "light" : "heavy";
-      const snap = mode === "light" ? await lightRefresh(env, makeDeps(env)) : await heavyRefresh(env, makeDeps(env));
-      return Response.json({ mode, ok: true, live: snap?.live.length ?? 0 });
+      try {
+        const snap = mode === "light" ? await lightRefresh(env, makeDeps(env)) : await heavyRefresh(env, makeDeps(env));
+        return Response.json({ mode, ok: true, live: snap?.live.length ?? 0 });
+      } catch (e) {
+        // Return a readable error instead of an opaque platform 1101.
+        return Response.json({ mode, ok: false, error: (e as Error).message }, { status: 500 });
+      }
     }
     return new Response("not found", { status: 404 });
   },
