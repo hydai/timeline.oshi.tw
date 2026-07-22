@@ -4,9 +4,10 @@ import { Users } from "lucide-react";
 
 type Kind = "live" | "upcoming" | "recent";
 
+// Tinted-fill pills with theme-primary text → WCAG AA (>=4.5:1) in both light and dark.
 const STATUS: Record<Kind, { label: string; cls: string; style: React.CSSProperties }> = {
-  live: { label: "直播中", cls: "text-white", style: { background: "linear-gradient(135deg, var(--accent-pink), var(--accent-pink-dark))" } },
-  upcoming: { label: "預定開台", cls: "text-white", style: { background: "var(--accent-blue)" } },
+  live: { label: "直播中", cls: "text-text-primary", style: { background: "var(--bg-accent-pink-muted)" } },
+  upcoming: { label: "預定開台", cls: "text-text-primary", style: { background: "var(--bg-accent-blue-muted)" } },
   recent: { label: "已結束", cls: "text-text-secondary", style: { background: "var(--bg-surface-muted)" } },
 };
 
@@ -34,7 +35,7 @@ export default function StreamCard({ kind, stream, channel, nowMs }: {
           {channel.group && <div className="truncate text-xs text-text-tertiary">{channel.group}</div>}
         </div>
         <span className={`flex items-center gap-1 rounded-pill px-2 py-1 text-xs font-medium ${s.cls}`} style={s.style}>
-          {kind === "live" && <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-white" />}
+          {kind === "live" && <span className="inline-block h-2 w-2 animate-pulse rounded-full" style={{ background: "var(--accent-pink)" }} />}
           {s.label}
         </span>
       </div>
