@@ -1,8 +1,23 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import SearchBar from "@/app/components/SearchBar";
-import GroupFilter from "@/app/components/GroupFilter";
+import VTuberFilter from "@/app/components/VTuberFilter";
+
+const vtubers = [
+  {
+    channelId: "channel-mizuki",
+    name: "水樹",
+    avatar: "https://example.com/mizuki.png",
+    itemCount: 3,
+  },
+  {
+    channelId: "channel-gabu",
+    name: "Gabu",
+    avatar: null,
+    itemCount: 1,
+  },
+];
 
 describe("SearchBar", () => {
   it("calls onChange as the user types", async () => {
@@ -13,13 +28,73 @@ describe("SearchBar", () => {
   });
 });
 
-describe("GroupFilter", () => {
-  it("reflects selection and toggles on click", async () => {
-    const onToggle = vi.fn();
-    render(<GroupFilter groups={["子午計畫", "獨立"]} selected={["獨立"]} onToggle={onToggle} />);
-    expect(screen.getByRole("button", { name: "獨立" })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByRole("button", { name: "子午計畫" })).toHaveAttribute("aria-pressed", "false");
-    await userEvent.click(screen.getByRole("button", { name: "子午計畫" }));
-    expect(onToggle).toHaveBeenCalledWith("子午計畫");
+describe("VTuberFilter", () => {
+  it("reflects the selected VTuber and emits its channel ID on click", async () => {
+    const onSelect = vi.fn();
+    render(
+      <VTuberFilter
+        options={vtubers}
+        selected="channel-gabu"
+        totalCount={4}
+        onSelect={onSelect}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Gabu" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "水樹" })).toHaveAttribute("aria-pressed", "false");
+
+    await userEvent.click(screen.getByRole("button", { name: "水樹" }));
+
+    expect(onSelect).toHaveBeenCalledWith("channel-mizuki");
+  });
+
+  it("renders names and item counts, and resets the selection with 全部", async () => {
+    const onSelect = vi.fn();
+    render(
+      <VTuberFilter
+        options={vtubers}
+        selected="channel-mizuki"
+        totalCount={4}
+        onSelect={onSelect}
+      />,
+    );
+
+    const allButton = screen.getByRole("button", { name: "全部" });
+    const mizukiButton = screen.getByRole("button", { name: "水樹" });
+    const gabuButton = screen.getByRole("button", { name: "Gabu" });
+
+    expect(within(allButton).getByText("4")).toBeInTheDocument();
+    expect(within(mizukiButton).getByText("水樹")).toBeInTheDocument();
+    expect(within(mizukiButton).getByText("3")).toBeInTheDocument();
+    expect(within(gabuButton).getByText("Gabu")).toBeInTheDocument();
+    expect(within(gabuButton).getByText("1")).toBeInTheDocument();
+
+    await userEvent.click(allButton);
+
+    expect(onSelect).toHaveBeenCalledWith(null);
+  });
+
+  it("falls back to the name initial when an avatar is missing or fails to load", () => {
+    render(
+      <VTuberFilter
+        options={vtubers}
+        selected={null}
+        totalCount={4}
+        onSelect={vi.fn()}
+      />,
+    );
+
+    const mizukiButton = screen.getByRole("button", { name: "水樹" });
+    const gabuButton = screen.getByRole("button", { name: "Gabu" });
+    const mizukiAvatar = mizukiButton.querySelector("img");
+
+    expect(mizukiAvatar).toHaveAttribute("src", "https://example.com/mizuki.png");
+    expect(gabuButton.querySelector("img")).not.toBeInTheDocument();
+    expect(within(gabuButton).getByText("G")).toBeInTheDocument();
+
+    fireEvent.error(mizukiAvatar!);
+
+    expect(mizukiButton.querySelector("img")).not.toBeInTheDocument();
+    expect(within(mizukiButton).getByText("水")).toBeInTheDocument();
   });
 });

@@ -37,7 +37,7 @@ export default function Timeline({ items, nowMs }: { items: TimelineItem[]; nowM
       it.kind === "milestone" ? (
         <MilestoneCard key={`m-${it.milestone.channelId}-${it.milestone.date}`} milestone={it.milestone} channel={it.channel} />
       ) : (
-        <StreamCard key={it.stream.videoId} kind={it.kind} stream={it.stream} channel={it.channel} nowMs={nowMs} />
+        <StreamCard key={`${it.kind}-${it.stream.videoId}`} kind={it.kind} stream={it.stream} channel={it.channel} nowMs={nowMs} />
       )
     );
   }

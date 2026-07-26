@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import Timeline from "@/app/components/Timeline";
 import type { TimelineItem } from "@/lib/types";
@@ -48,5 +48,32 @@ describe("Timeline", () => {
     expect(screen.getByText("recent two")).toBeInTheDocument();
     expect(screen.getByText("🔴 正在直播")).toBeInTheDocument();
     expect(screen.getByText("📅 預定開台")).toBeInTheDocument();
+  });
+
+  it("keeps React keys unique when a video appears in more than one status", () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    const repeatedVideo: TimelineItem[] = [
+      {
+        kind: "live",
+        sortAt: 1,
+        channel,
+        stream: { videoId: "same", channelId: "c", title: "live copy", thumbnail: null, url: "u" },
+      },
+      {
+        kind: "recent",
+        sortAt: 0,
+        channel,
+        stream: { videoId: "same", channelId: "c", title: "recent copy", thumbnail: null, url: "u" },
+      },
+    ];
+
+    try {
+      render(<Timeline items={repeatedVideo} nowMs={now} />);
+      expect(screen.getByText("live copy")).toBeInTheDocument();
+      expect(screen.getByText("recent copy")).toBeInTheDocument();
+      expect(consoleError.mock.calls.flat().join(" ")).not.toContain("same key");
+    } finally {
+      consoleError.mockRestore();
+    }
   });
 });

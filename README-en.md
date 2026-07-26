@@ -2,14 +2,14 @@
 
 [繁體中文](README.md) | **English**
 
-A Threads-style "river" of Taiwan VTuber activity — **live now, upcoming, recently ended, and milestones** merged into one searchable timeline you can filter by group. The design language borrows the crystal glassmorphism of its sibling project **prism.oshi.tw**, with dark and light themes.
+A Threads-style "river" of Taiwan VTuber activity — **live now, upcoming, recently ended, and milestones** merged into one searchable timeline, with a VODs-style avatar rail for selecting one individual VTuber. The design language borrows the crystal glassmorphism of its sibling project **prism.oshi.tw**, with dark and light themes.
 
 **Live site:** <https://timeline.oshi.tw>
 
 ## Features
 
 - **River timeline** — four lanes (live / upcoming / recent / milestone) merged chronologically into a single stream
-- **Search & filter** — search VTubers as you type and multi-select by group
+- **Search & filter** — search VTubers as you type and select one individual VTuber from a VODs-style avatar rail
 - **Dark / light modes** — light is built on pale blue, pink, and white; dark mirrors the same palette
 - **Fully static frontend** — Next.js static export, no server at runtime
 - **Zero-idle backend** — a Cron-triggered Worker periodically produces a snapshot; the frontend just reads one JSON file
@@ -32,7 +32,7 @@ twvtuber REST API ───────────┘         (Cron-triggered) 
   - Channels and stream state live in **D1** (`timeline-streams`); the snapshot JSON is written to **R2** at `streams/v1/snapshot.json` and served through the R2 custom domain at `https://data.oshi.tw/streams/v1/snapshot.json`.
   - A token-gated manual trigger (`POST /refresh?mode=heavy|light` with an `X-Trigger-Token` header) exists for debugging.
 - **`web/` — the frontend** (Next.js 16 static export, deployed to Cloudflare Pages)
-  - Fetches the snapshot JSON in the browser and renders the river, search, group filter, and theme toggle, auto-refreshing on a timer.
+  - Fetches the snapshot JSON in the browser and renders the river, search, single-select VTuber avatar rail, and theme toggle, auto-refreshing on a timer.
 
 ## Tech stack
 

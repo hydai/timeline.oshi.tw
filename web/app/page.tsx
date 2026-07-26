@@ -2,11 +2,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { fetchSnapshot } from "@/lib/snapshot";
 import { buildTimeline } from "@/lib/timeline";
-import { filterTimeline } from "@/lib/filter";
+import { buildVTuberFilterOptions, filterTimeline } from "@/lib/filter";
 import type { Snapshot } from "@/lib/types";
 import Header from "./components/Header";
 import SearchBar from "./components/SearchBar";
-import GroupFilter from "./components/GroupFilter";
+import VTuberFilter from "./components/VTuberFilter";
 import Timeline from "./components/Timeline";
 
 const SNAPSHOT_URL = process.env.NEXT_PUBLIC_SNAPSHOT_URL ?? "https://data.oshi.tw/streams/v1/snapshot.json";
@@ -15,7 +15,7 @@ export default function Home() {
   const [snap, setSnap] = useState<Snapshot | null>(null);
   const [error, setError] = useState(false);
   const [query, setQuery] = useState("");
-  const [groups, setGroups] = useState<string[]>([]);
+  const [selectedChannelId, setSelectedChannelId] = useState<string | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const mounted = useRef(true);
 
@@ -39,11 +39,12 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `load` is a permanently stable useCallback([]) reference; run once on mount.
   }, []);
 
-  const items = useMemo(() => (snap ? filterTimeline(buildTimeline(snap), query, groups) : []), [snap, query, groups]);
-
-  function toggleGroup(g: string) {
-    setGroups((prev) => (prev.includes(g) ? prev.filter((x) => x !== g) : [...prev, g]));
-  }
+  const timeline = useMemo(() => (snap ? buildTimeline(snap) : []), [snap]);
+  const vtubers = useMemo(() => buildVTuberFilterOptions(timeline), [timeline]);
+  const items = useMemo(
+    () => filterTimeline(timeline, query, selectedChannelId),
+    [timeline, query, selectedChannelId],
+  );
 
   return (
     <div className="relative mx-auto min-h-screen max-w-2xl px-4 py-6">
@@ -62,7 +63,12 @@ export default function Home() {
           <>
             <div className="mb-4 flex flex-col gap-3">
               <SearchBar value={query} onChange={setQuery} />
-              <GroupFilter groups={snap.groups} selected={groups} onToggle={toggleGroup} />
+              <VTuberFilter
+                options={vtubers}
+                selected={selectedChannelId}
+                totalCount={timeline.length}
+                onSelect={setSelectedChannelId}
+              />
             </div>
             <Timeline items={items} nowMs={nowMs} />
           </>

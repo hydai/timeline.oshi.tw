@@ -2,14 +2,14 @@
 
 **繁體中文** | [English](README-en.md)
 
-以 Threads 河道式呈現台灣 VTuber 的直播動態——**正在直播、預定開台、近期結束、里程碑**匯流成一條可搜尋、可依所屬團體篩選的時間軸。設計語言沿用姊妹專案 **prism.oshi.tw** 的水晶玻璃質感（glassmorphism），支援深／淺色模式。
+以 Threads 河道式呈現台灣 VTuber 的直播動態——**正在直播、預定開台、近期結束、里程碑**匯流成一條可搜尋的時間軸，並可透過與 VODs 一致的大頭貼列單選個別 VTuber。設計語言沿用姊妹專案 **prism.oshi.tw** 的水晶玻璃質感（glassmorphism），支援深／淺色模式。
 
 **線上網站：** <https://timeline.oshi.tw>
 
 ## 特色
 
 - **河道式時間軸**：四種泳道（直播中／預定開台／近期／里程碑）依時間匯流成單一河道
-- **搜尋與篩選**：可即時搜尋 VTuber，並依所屬團體（group）多選篩選
+- **搜尋與篩選**：可即時搜尋 VTuber，並透過與 VODs 一致的大頭貼列單選個別 VTuber
 - **深／淺色模式**：淺色以淺藍、淺粉、白為主體；深色為對應色調
 - **前端全靜態**：Next.js 靜態輸出，執行期不需伺服器
 - **後端零常駐**：資料由 Cron 觸發的 Worker 週期性產生快照，前端只讀一份 JSON
@@ -32,7 +32,7 @@ twvtuber REST API ──────────┘         （Cron 觸發）   
   - 頻道清單與直播狀態存於 **D1**（`timeline-streams`）；快照 JSON 寫入 **R2** 的 `streams/v1/snapshot.json`，透過 R2 自訂網域對外服務於 `https://data.oshi.tw/streams/v1/snapshot.json`。
   - 另有 token 保護的手動觸發：`POST /refresh?mode=heavy|light`（帶 `X-Trigger-Token` 標頭），供除錯用。
 - **`web/` — 前端**（Next.js 16 靜態輸出，部署於 Cloudflare Pages）
-  - 於瀏覽器端抓取上述快照 JSON，渲染河道、搜尋、團體篩選與深淺色切換，並定時自動重新抓取。
+  - 於瀏覽器端抓取上述快照 JSON，渲染河道、搜尋、個別 VTuber 大頭貼單選列與深淺色切換，並定時自動重新抓取。
 
 ## 技術棧
 

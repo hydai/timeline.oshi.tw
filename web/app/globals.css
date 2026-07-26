@@ -2,6 +2,10 @@
 @tailwind components;
 @tailwind utilities;
 
+html {
+  overflow-x: hidden;
+}
+
 :root {
   --accent-pink: #EC4899;
   --accent-pink-dark: #DB2777;
@@ -27,6 +31,7 @@
   --text-primary: #1E293B;
   --text-secondary: #64748B;
   --text-tertiary: #94A3B8;
+  --text-filter-muted: #526175;
   --text-on-accent: #FFFFFF;
 
   --border-default: #E2E8F0;
@@ -62,6 +67,7 @@ html.dark {
   --text-primary: #E8EAF0;
   --text-secondary: #9CA3AF;
   --text-tertiary: #6B7280;
+  --text-filter-muted: #9CA3AF;
   --text-on-accent: #FFFFFF;
 
   --border-default: rgba(255, 255, 255, 0.10);
@@ -75,6 +81,7 @@ body {
   color: var(--text-primary);
   background: linear-gradient(135deg, var(--bg-page-start) 0%, var(--bg-page-mid) 50%, var(--bg-page-end) 100%);
   background-attachment: fixed;
+  overflow-x: hidden;
   min-height: 100vh;
 }
 
@@ -83,4 +90,12 @@ body {
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   border: 1px solid var(--border-glass);
+}
+
+.scrollbar-none {
+  scrollbar-width: none;
+}
+
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
 }
