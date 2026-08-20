@@ -2,10 +2,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { fetchSnapshot } from "@/lib/snapshot";
 import { buildTimeline } from "@/lib/timeline";
-import { buildVTuberFilterOptions, filterTimeline } from "@/lib/filter";
+import {
+  buildTimelineKindCounts,
+  buildVTuberFilterOptions,
+  filterTimeline,
+  type TimelineKind,
+} from "@/lib/filter";
 import type { Snapshot } from "@/lib/types";
 import Header from "./components/Header";
 import SearchBar from "./components/SearchBar";
+import TimelineTypeFilter from "./components/TimelineTypeFilter";
 import VTuberFilter from "./components/VTuberFilter";
 import Timeline from "./components/Timeline";
 
@@ -16,6 +22,7 @@ export default function Home() {
   const [error, setError] = useState(false);
   const [query, setQuery] = useState("");
   const [selectedChannelId, setSelectedChannelId] = useState<string | null>(null);
+  const [selectedKind, setSelectedKind] = useState<TimelineKind | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const mounted = useRef(true);
 
@@ -41,9 +48,10 @@ export default function Home() {
 
   const timeline = useMemo(() => (snap ? buildTimeline(snap) : []), [snap]);
   const vtubers = useMemo(() => buildVTuberFilterOptions(timeline), [timeline]);
+  const kindCounts = useMemo(() => buildTimelineKindCounts(timeline), [timeline]);
   const items = useMemo(
-    () => filterTimeline(timeline, query, selectedChannelId),
-    [timeline, query, selectedChannelId],
+    () => filterTimeline(timeline, query, selectedChannelId, selectedKind),
+    [timeline, query, selectedChannelId, selectedKind],
   );
 
   return (
@@ -61,13 +69,20 @@ export default function Home() {
           <div role="status" aria-live="polite" className="glass rounded-2xl p-6 text-center text-text-secondary">載入中…</div>
         ) : (
           <>
-            <div className="mb-4 flex flex-col gap-3">
+            <div className="mb-3 flex flex-col gap-3">
               <SearchBar value={query} onChange={setQuery} />
               <VTuberFilter
                 options={vtubers}
                 selected={selectedChannelId}
                 totalCount={timeline.length}
                 onSelect={setSelectedChannelId}
+              />
+            </div>
+            <div className="sticky top-2 z-20 mb-4">
+              <TimelineTypeFilter
+                counts={kindCounts}
+                selected={selectedKind}
+                onSelect={setSelectedKind}
               />
             </div>
             <Timeline items={items} nowMs={nowMs} />

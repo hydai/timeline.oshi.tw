@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import SearchBar from "@/app/components/SearchBar";
+import TimelineTypeFilter from "@/app/components/TimelineTypeFilter";
 import VTuberFilter from "@/app/components/VTuberFilter";
 
 const vtubers = [
@@ -25,6 +26,31 @@ describe("SearchBar", () => {
     render(<SearchBar value="" onChange={onChange} />);
     await userEvent.type(screen.getByLabelText("搜尋 VTuber"), "水");
     expect(onChange).toHaveBeenCalledWith("水");
+  });
+});
+
+describe("TimelineTypeFilter", () => {
+  it("renders counts, reflects selection, and emits the selected kind", async () => {
+    const onSelect = vi.fn();
+    render(
+      <TimelineTypeFilter
+        counts={{ live: 2, upcoming: 4, recent: 8, milestone: 1 }}
+        selected="upcoming"
+        onSelect={onSelect}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "全部類型" })).toHaveTextContent("15");
+    expect(screen.getByRole("button", { name: "正在直播" })).toHaveTextContent("2");
+    expect(screen.getByRole("button", { name: "預定直播" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "已完成直播" })).toHaveTextContent("8");
+    expect(screen.getByRole("button", { name: "重要里程碑" })).toHaveTextContent("1");
+
+    await userEvent.click(screen.getByRole("button", { name: "重要里程碑" }));
+    expect(onSelect).toHaveBeenCalledWith("milestone");
+
+    await userEvent.click(screen.getByRole("button", { name: "全部類型" }));
+    expect(onSelect).toHaveBeenCalledWith(null);
   });
 });
 

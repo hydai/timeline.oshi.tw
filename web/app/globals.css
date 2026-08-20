@@ -3,7 +3,7 @@
 @tailwind utilities;
 
 html {
-  overflow-x: hidden;
+  overflow-x: clip;
 }
 
 :root {
@@ -81,7 +81,7 @@ body {
   color: var(--text-primary);
   background: linear-gradient(135deg, var(--bg-page-start) 0%, var(--bg-page-mid) 50%, var(--bg-page-end) 100%);
   background-attachment: fixed;
-  overflow-x: hidden;
+  overflow-x: clip;
   min-height: 100vh;
 }
 

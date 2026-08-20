@@ -1,5 +1,8 @@
 import type { TimelineItem } from "./types";
 
+export type TimelineKind = TimelineItem["kind"];
+export type TimelineKindCounts = Record<TimelineKind, number>;
+
 export interface VTuberFilterOption {
   channelId: string;
   name: string;
@@ -36,10 +39,26 @@ export function buildVTuberFilterOptions(items: TimelineItem[]): VTuberFilterOpt
   );
 }
 
+export function buildTimelineKindCounts(items: TimelineItem[]): TimelineKindCounts {
+  const counts: TimelineKindCounts = {
+    live: 0,
+    upcoming: 0,
+    recent: 0,
+    milestone: 0,
+  };
+
+  for (const item of items) {
+    counts[item.kind] += 1;
+  }
+
+  return counts;
+}
+
 export function filterTimeline(
   items: TimelineItem[],
   query: string,
   selectedChannelId: string | null,
+  selectedKind: TimelineKind | null = null,
 ): TimelineItem[] {
   const q = query.trim().toLowerCase();
   return items.filter((it) => {
@@ -51,6 +70,7 @@ export function filterTimeline(
     if (selectedChannelId && timelineChannelId(it) !== selectedChannelId) {
       return false;
     }
+    if (selectedKind && it.kind !== selectedKind) return false;
     return true;
   });
 }

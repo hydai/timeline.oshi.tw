@@ -55,6 +55,39 @@ const filterFixture = {
   milestones: [],
 } satisfies Snapshot;
 
+const typeFilterFixture = {
+  ...filterFixture,
+  live: [{
+    videoId: "video-live",
+    channelId: "channel-mizuki",
+    title: "現在正在直播",
+    thumbnail: null,
+    url: "https://example.com/live",
+    actualStart: "2026-07-21T19:00:00Z",
+  }],
+  upcoming: [{
+    videoId: "video-upcoming",
+    channelId: "channel-gabu",
+    title: "稍後預定直播",
+    thumbnail: null,
+    url: "https://example.com/upcoming",
+    scheduledStart: "2026-07-22T12:00:00Z",
+  }],
+  recent: [{
+    videoId: "video-completed",
+    channelId: "channel-mizuki",
+    title: "已完成的直播",
+    thumbnail: null,
+    url: "https://example.com/completed",
+    actualEnd: "2026-07-21T18:00:00Z",
+  }],
+  milestones: [{
+    channelId: "channel-gabu",
+    type: "anniversary",
+    date: "2026-07-24",
+  }],
+} satisfies Snapshot;
+
 describe("Home page", () => {
   it("shows loading, then loads the snapshot and renders the river + controls", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(fixture), { status: 200 })));
@@ -114,5 +147,35 @@ describe("Home page", () => {
     expect(screen.getByRole("link", { name: /水樹的直播/ })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Gabu 的直播/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "全部" })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("quickly filters the river by content type and restores it with 全部類型", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify(typeFilterFixture), { status: 200 })),
+    );
+    render(<Home />);
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "正在直播" })).toBeInTheDocument());
+    expect(screen.getByText("現在正在直播")).toBeInTheDocument();
+    expect(screen.getByText("稍後預定直播")).toBeInTheDocument();
+    expect(screen.getByText("已完成的直播")).toBeInTheDocument();
+    expect(screen.getByText("週年 · 2026-07-24")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "正在直播" }));
+    expect(screen.getByText("現在正在直播")).toBeInTheDocument();
+    expect(screen.queryByText("稍後預定直播")).not.toBeInTheDocument();
+    expect(screen.queryByText("已完成的直播")).not.toBeInTheDocument();
+    expect(screen.queryByText("週年 · 2026-07-24")).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "重要里程碑" }));
+    expect(screen.queryByText("現在正在直播")).not.toBeInTheDocument();
+    expect(screen.getByText("週年 · 2026-07-24")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "全部類型" }));
+    expect(screen.getByText("現在正在直播")).toBeInTheDocument();
+    expect(screen.getByText("稍後預定直播")).toBeInTheDocument();
+    expect(screen.getByText("已完成的直播")).toBeInTheDocument();
+    expect(screen.getByText("週年 · 2026-07-24")).toBeInTheDocument();
   });
 });

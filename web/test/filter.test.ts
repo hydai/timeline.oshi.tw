@@ -1,10 +1,13 @@
 import { describe, it, expect } from "vitest";
 import {
+  buildTimelineKindCounts,
   buildVTuberFilterOptions,
   filterTimeline,
   timelineChannelId,
 } from "@/lib/filter";
 import type { SnapshotChannel, TimelineItem } from "@/lib/types";
+
+type StreamTimelineKind = Exclude<TimelineItem["kind"], "milestone">;
 
 const channel = (
   name: string,
@@ -25,8 +28,9 @@ const streamItem = (
   channelId: string,
   handle = `@${name}`,
   avatar: string | null = null,
+  kind: StreamTimelineKind = "recent",
 ): TimelineItem => ({
-  kind: "recent",
+  kind,
   sortAt: 0,
   stream: {
     videoId: `video-${channelId}-${name}`,
@@ -90,12 +94,56 @@ describe("filterTimeline", () => {
     ]);
   });
 
+  it("filters by live, upcoming, completed, and milestone kinds", () => {
+    const categorized = [
+      streamItem("Live", "channel-live", "@live", null, "live"),
+      streamItem("Upcoming", "channel-upcoming", "@upcoming", null, "upcoming"),
+      streamItem("Completed", "channel-completed", "@completed", null, "recent"),
+      milestoneItem("Milestone", "channel-milestone"),
+    ];
+
+    expect(filterTimeline(categorized, "", null, "live").map((item) => item.kind)).toEqual(["live"]);
+    expect(filterTimeline(categorized, "", null, "upcoming").map((item) => item.kind)).toEqual(["upcoming"]);
+    expect(filterTimeline(categorized, "", null, "recent").map((item) => item.kind)).toEqual(["recent"]);
+    expect(filterTimeline(categorized, "", null, "milestone").map((item) => item.kind)).toEqual(["milestone"]);
+  });
+
+  it("combines content type with search and VTuber filters", () => {
+    const categorized = [
+      streamItem("水樹", "channel-mizuki", "@mizuki", null, "live"),
+      streamItem("水樹", "channel-mizuki", "@mizuki", null, "recent"),
+      streamItem("Gabu", "channel-gabu", "@gabu", null, "live"),
+    ];
+
+    expect(filterTimeline(categorized, "水", "channel-mizuki", "live")).toEqual([categorized[0]]);
+    expect(filterTimeline(categorized, "水", "channel-mizuki", "upcoming")).toEqual([]);
+  });
+
   it("uses milestone channel IDs when filtering", () => {
     const result = filterTimeline(items, "", "channel-mizuki");
 
     expect(result).toContain(items[3]);
     expect(result.some((item) => item.kind === "milestone")).toBe(true);
     expect(result.every((item) => timelineChannelId(item) === "channel-mizuki")).toBe(true);
+  });
+});
+
+describe("buildTimelineKindCounts", () => {
+  it("counts each content type independently", () => {
+    const categorized = [
+      streamItem("Live 1", "channel-live-1", "@live1", null, "live"),
+      streamItem("Live 2", "channel-live-2", "@live2", null, "live"),
+      streamItem("Upcoming", "channel-upcoming", "@upcoming", null, "upcoming"),
+      streamItem("Completed", "channel-completed", "@completed", null, "recent"),
+      milestoneItem("Milestone", "channel-milestone"),
+    ];
+
+    expect(buildTimelineKindCounts(categorized)).toEqual({
+      live: 2,
+      upcoming: 1,
+      recent: 1,
+      milestone: 1,
+    });
   });
 });
 
