@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { env } from "cloudflare:test";
 import {
-  deleteStreamsBatch, listEnabledChannels, listStreamsByStatus, setChannelMetasBatch,
+  listEnabledChannels, listStreamsByStatus, markStreamsUnavailableBatch, setChannelMetasBatch,
   upsertChannelId, upsertStreamsBatch,
 } from "../src/db";
 import type { ChannelMeta, StreamRecord } from "../src/types";
@@ -13,6 +13,7 @@ const base: StreamRecord = {
 };
 
 beforeEach(async () => {
+  await env.DB.exec("DELETE FROM milestones");
   await env.DB.exec("DELETE FROM streams");
   await env.DB.exec("DELETE FROM channels");
   await upsertChannelId(env.DB, "UCaaa", "2026-07-20T00:00:00Z");
@@ -70,36 +71,43 @@ describe("upsertStreamsBatch", () => {
   });
 });
 
-describe("deleteStreamsBatch", () => {
-  it("deletes every requested stream regardless of its stored status", async () => {
+describe("markStreamsUnavailableBatch", () => {
+  it("hides every requested stream but keeps permanent tombstone rows", async () => {
     await upsertStreamsBatch(env.DB, [
       { ...base, videoId: "v1", status: "live" },
       { ...base, videoId: "v2", status: "upcoming" },
       { ...base, videoId: "v3", status: "ended", actualEnd: "2026-07-21T02:00:00Z" },
     ], "2026-07-21T00:05:00Z");
 
-    await deleteStreamsBatch(env.DB, ["v1", "v3"]);
+    await markStreamsUnavailableBatch(env.DB, ["v1", "v3"], "2026-07-22T00:00:00Z");
 
     expect(await listStreamsByStatus(env.DB, "live")).toEqual([]);
     expect((await listStreamsByStatus(env.DB, "upcoming")).map((s) => s.videoId)).toEqual(["v2"]);
     expect(await listStreamsByStatus(env.DB, "ended")).toEqual([]);
+    const tombstones = await env.DB
+      .prepare("SELECT video_id, availability, unavailable_at FROM streams WHERE availability = 'unavailable' ORDER BY video_id")
+      .all<{ video_id: string; availability: string; unavailable_at: string }>();
+    expect(tombstones.results).toEqual([
+      { video_id: "v1", availability: "unavailable", unavailable_at: "2026-07-22T00:00:00Z" },
+      { video_id: "v3", availability: "unavailable", unavailable_at: "2026-07-22T00:00:00Z" },
+    ]);
   });
 
   it("no-ops on an empty array", async () => {
     const batchSpy = vi.spyOn(env.DB, "batch");
-    await expect(deleteStreamsBatch(env.DB, [])).resolves.toBeUndefined();
+    await expect(markStreamsUnavailableBatch(env.DB, [], "2026-07-22T00:00:00Z")).resolves.toBeUndefined();
     expect(batchSpy).not.toHaveBeenCalled();
     batchSpy.mockRestore();
   });
 
-  it("chunks large deletes into batches of at most 100 statements", async () => {
+  it("chunks large tombstone updates into batches of at most 100 statements", async () => {
     const recs: StreamRecord[] = Array.from({ length: 250 }, (_, i) => ({
       ...base, videoId: `v${i}`,
     }));
     await upsertStreamsBatch(env.DB, recs, "2026-07-21T00:05:00Z");
 
     const batchSpy = vi.spyOn(env.DB, "batch");
-    await deleteStreamsBatch(env.DB, recs.map((r) => r.videoId));
+    await markStreamsUnavailableBatch(env.DB, recs.map((r) => r.videoId), "2026-07-22T00:00:00Z");
     expect(batchSpy.mock.calls.map(([stmts]) => stmts.length)).toEqual([100, 100, 50]);
     batchSpy.mockRestore();
     expect(await listStreamsByStatus(env.DB, "live")).toEqual([]);

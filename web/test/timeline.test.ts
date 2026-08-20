@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { buildTimeline } from "@/lib/timeline";
-import type { Snapshot } from "@/lib/types";
+import { buildArchiveTimeline, buildTimeline, mergeTimelines } from "@/lib/timeline";
+import type { ArchiveMonth, Snapshot } from "@/lib/types";
 import fixture from "./fixtures/snapshot.json";
 
 const ch = (name: string) => ({ name, handle: null, avatar: null, group: "G", nationality: "TW", youtube_subs: 1, twvtuber_id: "t" });
@@ -35,5 +35,26 @@ describe("buildTimeline", () => {
     expect(items.length).toBeGreaterThan(0);
     expect(items.every((it) => it.channel && typeof it.channel.name === "string")).toBe(true);
     expect(items[0]!.kind).toBe("live");
+  });
+
+  it("maps monthly archives and deduplicates their overlap with the current snapshot", () => {
+    const archive: ArchiveMonth = {
+      version: "1.0.0",
+      generated_at: "2026-07-21T00:00:00Z",
+      month: "2026-07",
+      channels: mini.channels,
+      streams: [
+        mini.recent[0]!,
+        { videoId: "OLD", channelId: "E", title: "old", thumbnail: null, url: "u", actualEnd: "2026-07-01T00:00:00Z" },
+      ],
+      milestones: [mini.milestones[0]!],
+    };
+
+    const merged = mergeTimelines(buildTimeline(mini), buildArchiveTimeline([archive]));
+    const ids = merged.map((item) => item.kind === "milestone" ? `M:${item.milestone.date}` : item.stream.videoId);
+
+    expect(ids).toEqual(["L", "U1", "U2", "U0", "R", "M:2026-07-20", "OLD"]);
+    expect(ids.filter((id) => id === "R")).toHaveLength(1);
+    expect(ids.filter((id) => id === "M:2026-07-20")).toHaveLength(1);
   });
 });

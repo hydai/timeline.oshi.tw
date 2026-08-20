@@ -55,6 +55,27 @@ export interface Milestone {
   date: string;
 }
 
+export interface ArchiveMonthSummary {
+  month: string;
+  streams: number;
+  milestones: number;
+}
+
+export interface ArchiveIndex {
+  version: "1.0.0";
+  generated_at: string;
+  months: ArchiveMonthSummary[];
+}
+
+export interface ArchiveMonth {
+  version: "1.0.0";
+  generated_at: string;
+  month: string;
+  channels: Record<string, SnapshotChannel>;
+  streams: SnapshotStream[];
+  milestones: Milestone[];
+}
+
 export interface SnapshotChannel {
   name: string;
   handle: string | null;

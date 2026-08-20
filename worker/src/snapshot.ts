@@ -13,7 +13,7 @@ export interface BuildSnapshotInput {
 
 const RECENT_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 
-function toSnapshotChannel(row: ChannelRow, r: RosterEntry | undefined): SnapshotChannel {
+export function toSnapshotChannel(row: ChannelRow, r: RosterEntry | undefined): SnapshotChannel {
   return {
     name: row.name ?? r?.name ?? row.channel_id,
     handle: row.handle,
@@ -25,7 +25,7 @@ function toSnapshotChannel(row: ChannelRow, r: RosterEntry | undefined): Snapsho
   };
 }
 
-function toSnapshotStream(s: StreamRecord): SnapshotStream {
+export function toSnapshotStream(s: StreamRecord): SnapshotStream {
   const base: SnapshotStream = {
     videoId: s.videoId,
     channelId: s.channelId,

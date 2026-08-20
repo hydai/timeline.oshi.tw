@@ -31,56 +31,61 @@ export function indexRosterByYoutubeId(vtubers: TwVtuber[]): Map<string, RosterE
   return map;
 }
 
-/** Pure: derive a milestone's display date. Returns null if the source date is missing. */
-export function toMilestone(v: TwVtuber, type: Milestone["type"], nowIso: string): Milestone | null {
-  if (!v.youtube_id) return null;
-  let date: string | null = null;
-  if (type === "graduate") {
-    date = v.graduate_date;
-  } else if (type === "debut") {
-    date = v.debut_date;
-  } else {
-    // anniversary: this-year occurrence of the debut month-day
-    if (v.debut_date) date = `${nowIso.slice(0, 4)}-${v.debut_date.slice(5)}`;
+function validDate(date: string | null): date is string {
+  if (date == null || !/^\d{4}-(0[1-9]|1[0-2])-([012]\d|3[01])$/.test(date)) return false;
+  return new Date(`${date}T00:00:00.000Z`).toISOString().slice(0, 10) === date;
+}
+
+/** Derive the complete milestone history for tracked channels from roster dates. */
+export function derivePermanentMilestones(
+  vtubers: TwVtuber[],
+  trackedYoutubeIds: Set<string>,
+  nowIso: string,
+): Milestone[] {
+  const byKey = new Map<string, Milestone>();
+  const throughYear = Number(nowIso.slice(0, 4)) + 1;
+  const add = (milestone: Milestone) => {
+    byKey.set(`${milestone.channelId}:${milestone.type}:${milestone.date}`, milestone);
+  };
+
+  for (const vtuber of vtubers) {
+    const channelId = vtuber.youtube_id;
+    if (!channelId || !trackedYoutubeIds.has(channelId)) continue;
+
+    if (validDate(vtuber.debut_date)) {
+      add({ channelId, type: "debut", date: vtuber.debut_date });
+      const debutYear = Number(vtuber.debut_date.slice(0, 4));
+      const anniversaryEndYear = validDate(vtuber.graduate_date)
+        ? Math.min(throughYear, Number(vtuber.graduate_date.slice(0, 4)))
+        : throughYear;
+      for (let year = debutYear + 1; year <= anniversaryEndYear; year += 1) {
+        const date = `${year}-${vtuber.debut_date.slice(5)}`;
+        if (!validDate(date)) continue;
+        if (validDate(vtuber.graduate_date) && date > vtuber.graduate_date) continue;
+        add({ channelId, type: "anniversary", date });
+      }
+    }
+    if (validDate(vtuber.graduate_date)) {
+      add({ channelId, type: "graduate", date: vtuber.graduate_date });
+    }
   }
-  return date ? { channelId: v.youtube_id, type, date } : null;
+
+  return [...byKey.values()].sort(
+    (left, right) => left.date.localeCompare(right.date) || left.channelId.localeCompare(right.channelId),
+  );
 }
 
 export async function fetchRoster(baseUrl: string): Promise<TwVtuber[]> {
   const out: TwVtuber[] = [];
   const limit = 100;
   for (let offset = 0; ; offset += limit) {
-    const url = `${baseUrl}/v1/vtubers?region=TW&activity=active&limit=${limit}&offset=${offset}`;
+    const url = `${baseUrl}/v1/vtubers?region=TW&limit=${limit}&offset=${offset}`;
     const res = await fetch(url);
     if (!res.ok) throw new Error(`twvtuber roster failed (${res.status})`);
     const data = (await res.json()) as ListResponse;
     const page = data.results ?? [];
     out.push(...page);
     if (page.length < limit) break;
-  }
-  return out;
-}
-
-export async function fetchMilestones(
-  baseUrl: string,
-  trackedYoutubeIds: Set<string>,
-  nowIso: string,
-): Promise<Milestone[]> {
-  const specs: Array<{ type: Milestone["type"]; qs: string }> = [
-    { type: "debut", qs: "type=debut&window=upcoming" },
-    { type: "anniversary", qs: "type=anniversary&window=recent" },
-    { type: "graduate", qs: "type=graduate" },
-  ];
-  const out: Milestone[] = [];
-  for (const s of specs) {
-    const res = await fetch(`${baseUrl}/v1/events?${s.qs}&region=TW`);
-    if (!res.ok) continue; // tolerate partial failure (design §10)
-    const data = (await res.json()) as ListResponse;
-    for (const v of data.results ?? []) {
-      if (!v.youtube_id || !trackedYoutubeIds.has(v.youtube_id)) continue;
-      const m = toMilestone(v, s.type, nowIso);
-      if (m) out.push(m);
-    }
   }
   return out;
 }

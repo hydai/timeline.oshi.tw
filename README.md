@@ -2,37 +2,39 @@
 
 **繁體中文** | [English](README-en.md)
 
-以 Threads 河道式呈現台灣 VTuber 的直播動態——**正在直播、預定開台、近期結束、里程碑**匯流成一條可搜尋的時間軸，並可透過與 VODs 一致的大頭貼列單選個別 VTuber。設計語言沿用姊妹專案 **prism.oshi.tw** 的水晶玻璃質感（glassmorphism），支援深／淺色模式。
+以 Threads 河道式呈現台灣 VTuber 的直播動態——**正在直播、預定開台、已完成直播、里程碑**匯流成一條可搜尋的時間軸，並可透過與 VODs 一致的大頭貼列單選個別 VTuber。設計語言沿用姊妹專案 **prism.oshi.tw** 的水晶玻璃質感（glassmorphism），支援深／淺色模式。
 
 **線上網站：** <https://timeline.oshi.tw>
 
 ## 特色
 
-- **河道式時間軸**：四種泳道（直播中／預定開台／近期／里程碑）依時間匯流成單一河道
-- **搜尋與篩選**：可即時搜尋 VTuber，並透過與 VODs 一致的大頭貼列單選個別 VTuber
+- **河道式時間軸**：四種泳道（直播中／預定開台／已完成／里程碑）依時間匯流成單一河道
+- **搜尋與篩選**：可即時搜尋 VTuber，依內容類型快速切換，並透過與 VODs 一致的大頭貼列單選個別 VTuber
+- **永久歷史**：已完成直播與里程碑保存在 D1，前端依月份從 R2 封存按需載入，不會再隨近期視窗滾動消失
 - **深／淺色模式**：淺色以淺藍、淺粉、白為主體；深色為對應色調
 - **前端全靜態**：Next.js 靜態輸出，執行期不需伺服器
-- **後端零常駐**：資料由 Cron 觸發的 Worker 週期性產生快照，前端只讀一份 JSON
+- **後端零常駐**：資料由 Cron 觸發的 Worker 週期性產生當前快照與月份封存
 
 ## 運作方式
 
-系統分成互相獨立的兩半——一個負責「產生資料快照」的後端 Worker，一個負責「呈現」的靜態前端。兩者只透過一份公開的 JSON 快照溝通。
+系統分成互相獨立的兩半——一個負責「累積永久紀錄並發布快照／封存」的後端 Worker，一個負責「呈現」的靜態前端。兩者只透過 R2 上的公開 JSON 溝通。
 
 ```
 YouTube（RSS + Data API v3）─┐
-                            ├─►  streams-cache Worker ─►  D1 ─►  R2 快照
-twvtuber REST API ──────────┘         （Cron 觸發）           data.oshi.tw/streams/v1/snapshot.json
-                                                                      │
-                                              瀏覽器讀取（timeline.oshi.tw，Next.js 靜態站）◄─┘
+                            ├─►  streams-cache Worker ─►  D1 永久紀錄 ─► R2
+twvtuber REST API ──────────┘         （Cron 觸發）                  ├─ snapshot.json
+                                                                    └─ archive/{index,YYYY-MM}.json
+                                                                              │
+                                                      瀏覽器按需讀取（Next.js 靜態站）◄─┘
 ```
 
 - **`worker/` — streams-cache 後端**（Cloudflare Workers）
-  - **Heavy 全量刷新**（每日 4 次，`0/6/12/18` UTC）：對每個頻道走 RSS 探索（0 API 配額）找出近期影片 → `videos.list` 取直播細節 → join [twvtuber](https://twvtuber.oshi.tw) 名冊與里程碑 → 產生快照寫入 R2。
+  - **Heavy 全量刷新**（每日 4 次，`0/6/12/18` UTC）：對每個頻道走 RSS 探索（0 API 配額）找出近期影片 → `videos.list` 取直播細節 → 從完整 [twvtuber](https://twvtuber.oshi.tw) 名冊回填出道、歷年週年與畢業里程碑 → 發布資料。
   - **Light 直播檢查**（每 30 分）：只更新直播中／即將開始的狀態。
-  - 頻道清單與直播狀態存於 **D1**（`timeline-streams`）；快照 JSON 寫入 **R2** 的 `streams/v1/snapshot.json`，透過 R2 自訂網域對外服務於 `https://data.oshi.tw/streams/v1/snapshot.json`。
+  - 頻道、所有直播與里程碑永久存於 **D1**（`timeline-streams`）。私人／刪除影片以 tombstone 隱藏而不實體刪除；R2 同時提供輕量 `streams/v1/snapshot.json` 與 `streams/v1/archive/` 月份封存。
   - 另有 token 保護的手動觸發：`POST /refresh?mode=heavy|light`（帶 `X-Trigger-Token` 標頭），供除錯用。
 - **`web/` — 前端**（Next.js 16 靜態輸出，部署於 Cloudflare Pages）
-  - 於瀏覽器端抓取上述快照 JSON，渲染河道、搜尋、個別 VTuber 大頭貼單選列與深淺色切換，並定時自動重新抓取。
+  - 於瀏覽器端抓取當前快照與輕量封存索引；選擇「已完成」或「里程碑」後才逐月載入永久紀錄。
 
 ## 技術棧
 
@@ -94,9 +96,9 @@ npm test
 
 部署到 **Cloudflare Pages**：build 指令 `npm run build`、輸出目錄 `out/`。資料來源以 `NEXT_PUBLIC_SNAPSHOT_URL` 指定，未設定時預設回退到 `https://data.oshi.tw/streams/v1/snapshot.json`（見 [`web/.env.example`](web/.env.example)）。提供快照的主機必須送出 `Access-Control-Allow-Origin`，因為瀏覽器是跨來源抓取的。
 
-## 資料快照契約（v1.0.0）
+## 資料契約（v1.0.0）
 
-前後端唯一的介面就是這份 JSON（欄位定義見 [`worker/src/types.ts`](worker/src/types.ts) 的 `Snapshot`）：
+當前狀態使用輕量快照（欄位定義見 [`worker/src/types.ts`](worker/src/types.ts) 的 `Snapshot`）：
 
 ```jsonc
 {
@@ -114,12 +116,14 @@ npm test
 
 `SnapshotStream` 的時間欄位（`actualStart` / `scheduledStart` / `actualEnd` / `concurrentViewers`）為選填，值為 null 時直接省略。
 
+永久歷史另由 `streams/v1/archive/index.json` 列出每月筆數；各月 `streams/v1/archive/YYYY-MM.json` 包含該月的 `channels`、已完成 `streams` 與 `milestones`。月份檔只在使用者切換到歷史類型時按需載入。
+
 ## 專案結構
 
 ```
 worker/                 # Cloudflare Worker — streams-cache 後端
-  src/                  # index（cron+fetch）· refresh · rss · youtube · twvtuber · db · r2 · snapshot · seed · types
-  migrations/           # D1 結構（0001_init.sql）
+  src/                  # index · refresh · archive · rss · youtube · twvtuber · db · r2 · snapshot · seed · types
+  migrations/           # D1 結構與永久歷史 migration
   seed/                 # channels.json（38 個頻道）+ seed.sql
   scripts/              # build-seed（名冊→channels.json）· import-seed（channels.json→seed.sql）
   test/                 # Vitest（workers pool）

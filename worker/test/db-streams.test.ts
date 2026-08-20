@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { env } from "cloudflare:test";
 import { upsertChannelId } from "../src/db";
-import { upsertStream, getActiveVideoIds, listStreamsByStatus, pruneEndedBefore } from "../src/db";
+import { getActiveVideoIds, listStreamsByStatus, markStreamsUnavailableBatch, upsertStream } from "../src/db";
 import type { StreamRecord } from "../src/types";
 
 const base: StreamRecord = {
@@ -11,6 +11,7 @@ const base: StreamRecord = {
 };
 
 beforeEach(async () => {
+  await env.DB.exec("DELETE FROM milestones");
   await env.DB.exec("DELETE FROM streams");
   await env.DB.exec("DELETE FROM channels");
   await upsertChannelId(env.DB, "UCaaa", "2026-07-20T00:00:00Z");
@@ -39,11 +40,25 @@ describe("streams db", () => {
     expect(ids).toContain("v2"); // ended but first_seen after cutoff
   });
 
-  it("pruneEndedBefore deletes old ended streams only", async () => {
+  it("keeps old ended streams permanently", async () => {
     await upsertStream(env.DB, { ...base, status: "ended", actualEnd: "2026-07-01T00:00:00Z" }, "2026-07-01T00:00:00Z");
     await upsertStream(env.DB, { ...base, videoId: "v2" }, "2026-07-21T00:00:00Z"); // live
-    await pruneEndedBefore(env.DB, "2026-07-14T00:00:00Z");
     const all = [...(await listStreamsByStatus(env.DB, "ended")), ...(await listStreamsByStatus(env.DB, "live"))];
-    expect(all.map((s) => s.videoId).sort()).toEqual(["v2"]);
+    expect(all.map((s) => s.videoId).sort()).toEqual(["v1", "v2"]);
+  });
+
+  it("revives a tombstoned stream when YouTube returns it again", async () => {
+    await upsertStream(env.DB, base, "2026-07-21T00:05:00Z");
+    await markStreamsUnavailableBatch(env.DB, [base.videoId], "2026-07-21T01:00:00Z");
+    expect(await listStreamsByStatus(env.DB, "live")).toEqual([]);
+
+    await upsertStream(env.DB, { ...base, concurrentViewers: 20 }, "2026-07-21T01:05:00Z");
+
+    expect((await listStreamsByStatus(env.DB, "live"))[0]!.concurrentViewers).toBe(20);
+    const row = await env.DB
+      .prepare("SELECT availability, unavailable_at FROM streams WHERE video_id = ?1")
+      .bind(base.videoId)
+      .first<{ availability: string; unavailable_at: string | null }>();
+    expect(row).toEqual({ availability: "available", unavailable_at: null });
   });
 });

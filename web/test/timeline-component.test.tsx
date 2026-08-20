@@ -30,7 +30,7 @@ describe("Timeline", () => {
     render(<Timeline items={spanning} nowMs={now} />);
     expect(screen.getByText("🔴 正在直播")).toBeInTheDocument();
     expect(screen.getByText("📅 預定開台")).toBeInTheDocument();
-    expect(screen.getByText("⏮️ 近期動態")).toBeInTheDocument();
+    expect(screen.getByText("📚 歷史與里程碑")).toBeInTheDocument();
   });
   it("renders exactly one section header for a zone with multiple items (not one per item)", () => {
     const spanning: TimelineItem[] = [
@@ -42,8 +42,8 @@ describe("Timeline", () => {
     render(<Timeline items={spanning} nowMs={now} />);
     // Two "recent" items share the "past" zone; the header must appear once at the
     // zone transition, not once per item. getByText throws on 2+ matches.
-    expect(screen.getByText("⏮️ 近期動態")).toBeInTheDocument();
-    expect(screen.getAllByText("⏮️ 近期動態")).toHaveLength(1);
+    expect(screen.getByText("📚 歷史與里程碑")).toBeInTheDocument();
+    expect(screen.getAllByText("📚 歷史與里程碑")).toHaveLength(1);
     expect(screen.getByText("recent one")).toBeInTheDocument();
     expect(screen.getByText("recent two")).toBeInTheDocument();
     expect(screen.getByText("🔴 正在直播")).toBeInTheDocument();

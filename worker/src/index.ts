@@ -2,7 +2,7 @@ import type { Env } from "./types";
 import { heavyRefresh, lightRefresh, type RefreshDeps } from "./refresh";
 import { fetchRecentVideoIds } from "./rss";
 import { fetchVideoDetails, fetchChannelMeta } from "./youtube";
-import { fetchRoster, fetchMilestones } from "./twvtuber";
+import { fetchRoster } from "./twvtuber";
 
 export function routeCron(cron: string): "heavy" | "light" | "none" {
   if (cron === "0 0,6,12,18 * * *") return "heavy";
@@ -16,7 +16,6 @@ function makeDeps(env: Env): RefreshDeps {
     fetchVideoDetails: (ids) => fetchVideoDetails(env.YOUTUBE_API_KEY, env.YT_REFERER, ids),
     fetchChannelMeta: (ids) => fetchChannelMeta(env.YOUTUBE_API_KEY, env.YT_REFERER, ids),
     fetchRoster: () => fetchRoster(env.TWVTUBER_BASE),
-    fetchMilestones: (tracked, now) => fetchMilestones(env.TWVTUBER_BASE, tracked, now),
     now: () => new Date().toISOString(),
   };
 }

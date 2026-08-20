@@ -2,37 +2,39 @@
 
 [繁體中文](README.md) | **English**
 
-A Threads-style "river" of Taiwan VTuber activity — **live now, upcoming, recently ended, and milestones** merged into one searchable timeline, with a VODs-style avatar rail for selecting one individual VTuber. The design language borrows the crystal glassmorphism of its sibling project **prism.oshi.tw**, with dark and light themes.
+A Threads-style "river" of Taiwan VTuber activity — **live now, upcoming, completed streams, and milestones** merged into one searchable timeline, with a VODs-style avatar rail for selecting one individual VTuber. The design language borrows the crystal glassmorphism of its sibling project **prism.oshi.tw**, with dark and light themes.
 
 **Live site:** <https://timeline.oshi.tw>
 
 ## Features
 
-- **River timeline** — four lanes (live / upcoming / recent / milestone) merged chronologically into a single stream
-- **Search & filter** — search VTubers as you type and select one individual VTuber from a VODs-style avatar rail
+- **River timeline** — four lanes (live / upcoming / completed / milestone) merged chronologically into a single stream
+- **Search & filter** — search VTubers, switch content types instantly, and select one VTuber from a VODs-style avatar rail
+- **Permanent history** — completed streams and milestones stay in D1 and are lazy-loaded from monthly R2 archives instead of rolling out of a recent window
 - **Dark / light modes** — light is built on pale blue, pink, and white; dark mirrors the same palette
 - **Fully static frontend** — Next.js static export, no server at runtime
-- **Zero-idle backend** — a Cron-triggered Worker periodically produces a snapshot; the frontend just reads one JSON file
+- **Zero-idle backend** — a Cron-triggered Worker periodically publishes the current snapshot and monthly archives
 
 ## How it works
 
-The system is two independent halves — a backend Worker that *produces a data snapshot*, and a static frontend that *renders it*. They only ever talk through one public JSON snapshot.
+The system is two independent halves — a backend Worker that *accumulates permanent records and publishes snapshots/archives*, and a static frontend that *renders them*. They communicate only through public JSON in R2.
 
 ```
 YouTube (RSS + Data API v3) ─┐
-                             ├─►  streams-cache Worker ─►  D1 ─►  R2 snapshot
-twvtuber REST API ───────────┘         (Cron-triggered)        data.oshi.tw/streams/v1/snapshot.json
-                                                                        │
-                                       browser reads (timeline.oshi.tw, static Next.js) ◄─┘
+                             ├─►  streams-cache Worker ─► permanent D1 ─► R2
+twvtuber REST API ───────────┘         (Cron-triggered)                 ├─ snapshot.json
+                                                                       └─ archive/{index,YYYY-MM}.json
+                                                                                 │
+                                            browser reads on demand (static Next.js) ◄─┘
 ```
 
 - **`worker/` — the streams-cache backend** (Cloudflare Workers)
-  - **Heavy refresh** (4×/day, `0/6/12/18` UTC): per channel, discover recent videos via RSS (0 API quota) → `videos.list` for stream details → join the [twvtuber](https://twvtuber.oshi.tw) roster and milestones → write the snapshot to R2.
+  - **Heavy refresh** (4×/day, `0/6/12/18` UTC): discover recent videos via RSS (0 API quota) → get stream details through `videos.list` → backfill debut, every anniversary, and graduation milestone from the complete [twvtuber](https://twvtuber.oshi.tw) roster → publish data.
   - **Light refresh** (every 30 min): update only live / imminent stream state.
-  - Channels and stream state live in **D1** (`timeline-streams`); the snapshot JSON is written to **R2** at `streams/v1/snapshot.json` and served through the R2 custom domain at `https://data.oshi.tw/streams/v1/snapshot.json`.
+  - Channels, every stream, and milestones are permanent in **D1** (`timeline-streams`). Private/deleted videos are hidden with tombstones instead of being physically deleted; R2 serves both `streams/v1/snapshot.json` and monthly files under `streams/v1/archive/`.
   - A token-gated manual trigger (`POST /refresh?mode=heavy|light` with an `X-Trigger-Token` header) exists for debugging.
 - **`web/` — the frontend** (Next.js 16 static export, deployed to Cloudflare Pages)
-  - Fetches the snapshot JSON in the browser and renders the river, search, single-select VTuber avatar rail, and theme toggle, auto-refreshing on a timer.
+  - Fetches the current snapshot and lightweight archive index; monthly permanent records load only after selecting Completed or Milestones.
 
 ## Tech stack
 
@@ -94,9 +96,9 @@ npm test
 
 Deploy to **Cloudflare Pages**: build command `npm run build`, output directory `out/`. Point the data source with `NEXT_PUBLIC_SNAPSHOT_URL`, or leave it unset to fall back to `https://data.oshi.tw/streams/v1/snapshot.json` (see [`web/.env.example`](web/.env.example)). Whatever host serves the snapshot must send `Access-Control-Allow-Origin`, since the browser fetches it cross-origin.
 
-## Snapshot contract (v1.0.0)
+## Data contracts (v1.0.0)
 
-The only interface between the two halves is this JSON (see the `Snapshot` type in [`worker/src/types.ts`](worker/src/types.ts)):
+Current state uses a lightweight snapshot (see the `Snapshot` type in [`worker/src/types.ts`](worker/src/types.ts)):
 
 ```jsonc
 {
@@ -114,12 +116,14 @@ The only interface between the two halves is this JSON (see the `Snapshot` type 
 
 The `SnapshotStream` time fields (`actualStart` / `scheduledStart` / `actualEnd` / `concurrentViewers`) are optional and omitted when null.
 
+Permanent history is indexed by `streams/v1/archive/index.json`. Each `streams/v1/archive/YYYY-MM.json` contains that month's `channels`, completed `streams`, and `milestones`; the browser fetches month files only when a historical filter is active.
+
 ## Project structure
 
 ```
 worker/                 # Cloudflare Worker — streams-cache backend
-  src/                  # index (cron+fetch) · refresh · rss · youtube · twvtuber · db · r2 · snapshot · seed · types
-  migrations/           # D1 schema (0001_init.sql)
+  src/                  # index · refresh · archive · rss · youtube · twvtuber · db · r2 · snapshot · seed · types
+  migrations/           # D1 schema and permanent-history migration
   seed/                 # channels.json (38 channels) + seed.sql
   scripts/              # build-seed (roster → channels.json) · import-seed (channels.json → seed.sql)
   test/                 # Vitest (workers pool)

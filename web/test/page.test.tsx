@@ -178,4 +178,59 @@ describe("Home page", () => {
     expect(screen.getByText("已完成的直播")).toBeInTheDocument();
     expect(screen.getByText("週年 · 2026-07-24")).toBeInTheDocument();
   });
+
+  it("lazy-loads permanent history one month at a time after choosing completed streams", async () => {
+    const archiveMonth = (month: string, videoId: string, title: string, actualEnd: string) => ({
+      version: "1.0.0",
+      generated_at: "2026-07-21T19:00:00Z",
+      month,
+      channels: typeFilterFixture.channels,
+      streams: [{
+        videoId,
+        channelId: "channel-mizuki",
+        title,
+        thumbnail: null,
+        url: `https://example.com/${videoId}`,
+        actualEnd,
+      }],
+      milestones: [],
+    });
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.endsWith("/archive/index.json")) {
+        return new Response(JSON.stringify({
+          version: "1.0.0",
+          generated_at: "2026-07-21T19:00:00Z",
+          months: [
+            { month: "2026-07", streams: 1, milestones: 0 },
+            { month: "2026-06", streams: 1, milestones: 0 },
+          ],
+        }), { status: 200 });
+      }
+      if (url.endsWith("/archive/2026-07.json")) {
+        return new Response(JSON.stringify(archiveMonth(
+          "2026-07", "archive-july", "七月封存直播", "2026-07-10T10:00:00Z",
+        )), { status: 200 });
+      }
+      if (url.endsWith("/archive/2026-06.json")) {
+        return new Response(JSON.stringify(archiveMonth(
+          "2026-06", "archive-june", "六月封存直播", "2026-06-10T10:00:00Z",
+        )), { status: 200 });
+      }
+      return new Response(JSON.stringify(typeFilterFixture), { status: 200 });
+    }));
+    render(<Home />);
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "已完成直播" })).toHaveTextContent("2"));
+    await userEvent.click(screen.getByRole("button", { name: "已完成直播" }));
+
+    await waitFor(() => expect(screen.getByText("七月封存直播")).toBeInTheDocument());
+    expect(screen.queryByText("六月封存直播")).not.toBeInTheDocument();
+    expect(screen.getByText(/已載入 1 \/ 2 筆歷史封存/)).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "載入更早紀錄" }));
+
+    await waitFor(() => expect(screen.getByText("六月封存直播")).toBeInTheDocument());
+    expect(screen.getByText("已載入全部永久紀錄。")).toBeInTheDocument();
+  });
 });

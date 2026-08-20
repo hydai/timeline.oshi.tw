@@ -15,7 +15,7 @@ function zoneOf(kind: TimelineItem["kind"]): Zone {
 const ZONE_LABEL: Record<Zone, string> = {
   live: "🔴 正在直播",
   upcoming: "📅 預定開台",
-  past: "⏮️ 近期動態",
+  past: "📚 歷史與里程碑",
 };
 
 export default function Timeline({ items, nowMs }: { items: TimelineItem[]; nowMs: number }) {
@@ -35,7 +35,7 @@ export default function Timeline({ items, nowMs }: { items: TimelineItem[]; nowM
     }
     nodes.push(
       it.kind === "milestone" ? (
-        <MilestoneCard key={`m-${it.milestone.channelId}-${it.milestone.date}`} milestone={it.milestone} channel={it.channel} />
+        <MilestoneCard key={`m-${it.milestone.channelId}-${it.milestone.type}-${it.milestone.date}`} milestone={it.milestone} channel={it.channel} />
       ) : (
         <StreamCard key={`${it.kind}-${it.stream.videoId}`} kind={it.kind} stream={it.stream} channel={it.channel} nowMs={nowMs} />
       )

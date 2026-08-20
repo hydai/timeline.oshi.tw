@@ -41,7 +41,36 @@ export interface Snapshot {
   milestones: Milestone[];
 }
 
+export interface ArchiveMonthSummary {
+  month: string;
+  streams: number;
+  milestones: number;
+}
+
+export interface ArchiveIndex {
+  version: "1.0.0";
+  generated_at: string;
+  months: ArchiveMonthSummary[];
+}
+
+export interface ArchiveMonth {
+  version: "1.0.0";
+  generated_at: string;
+  month: string;
+  channels: Record<string, SnapshotChannel>;
+  streams: SnapshotStream[];
+  milestones: Milestone[];
+}
+
 // A unified river item (built in lib/timeline.ts).
-export type TimelineItem =
-  | { kind: "live" | "upcoming" | "recent"; sortAt: number; stream: SnapshotStream; channel: SnapshotChannel }
+type StreamTimelineItem = {
+  [Kind in "live" | "upcoming" | "recent"]: {
+    kind: Kind;
+    sortAt: number;
+    stream: SnapshotStream;
+    channel: SnapshotChannel;
+  }
+}["live" | "upcoming" | "recent"];
+
+export type TimelineItem = StreamTimelineItem
   | { kind: "milestone"; sortAt: number; milestone: Milestone; channel: SnapshotChannel };

@@ -1,12 +1,14 @@
 import type { ChannelMeta, Env, Milestone, RosterEntry, Snapshot, StreamRecord } from "./types";
 import type { TwVtuber } from "./twvtuber";
 import {
-  deleteStreamsBatch, getActiveVideoIds, getStaleChannels, listEnabledChannels, listStreamsByStatus,
-  pruneEndedBefore, setChannelMetasBatch, upsertStreamsBatch,
+  getActiveVideoIds, getStaleChannels, listEnabledChannels, listEndedStreamsSince,
+  listMilestonesBetween, listStreamsByStatus, markStreamsUnavailableBatch, setChannelMetasBatch,
+  upsertMilestonesBatch, upsertStreamsBatch,
 } from "./db";
-import { indexRosterByYoutubeId } from "./twvtuber";
+import { derivePermanentMilestones, indexRosterByYoutubeId } from "./twvtuber";
 import { buildSnapshot } from "./snapshot";
 import { readSnapshot, writeSnapshot } from "./r2";
+import { publishArchive } from "./archive";
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -15,15 +17,14 @@ export interface RefreshDeps {
   fetchVideoDetails: (ids: string[]) => Promise<StreamRecord[]>;
   fetchChannelMeta: (ids: string[]) => Promise<ChannelMeta[]>;
   fetchRoster: () => Promise<TwVtuber[]>;
-  fetchMilestones: (trackedIds: Set<string>, nowIso: string) => Promise<Milestone[]>;
   now: () => string;
 }
 
-async function collectAllStreams(db: D1Database): Promise<StreamRecord[]> {
+async function collectCurrentStreams(db: D1Database, nowMs: number): Promise<StreamRecord[]> {
   const [live, upcoming, ended] = await Promise.all([
     listStreamsByStatus(db, "live"),
     listStreamsByStatus(db, "upcoming"),
-    listStreamsByStatus(db, "ended"),
+    listEndedStreamsSince(db, new Date(nowMs - 7 * DAY).toISOString()),
   ]);
   return [...live, ...upcoming, ...ended];
 }
@@ -43,15 +44,21 @@ async function reconcileFetchedStreams(
   const tracked = details.filter((stream) => trackedChannelIds.has(stream.channelId));
 
   await upsertStreamsBatch(db, tracked, nowIso);
-  await deleteStreamsBatch(db, missingIds);
+  await markStreamsUnavailableBatch(db, missingIds, nowIso);
 
   if (missingIds.length > 0) {
     console.warn(JSON.stringify({
-      message: "removed streams unavailable from YouTube videos.list",
+      message: "tombstoned streams unavailable from YouTube videos.list",
       count: missingIds.length,
       videoIds: missingIds,
     }));
   }
+}
+
+async function listSnapshotMilestones(db: D1Database, nowMs: number): Promise<Milestone[]> {
+  const start = new Date(nowMs - 7 * DAY).toISOString().slice(0, 10);
+  const end = new Date(nowMs + 31 * DAY).toISOString().slice(0, 10);
+  return listMilestonesBetween(db, start, end);
 }
 
 export async function heavyRefresh(env: Env, deps: RefreshDeps): Promise<Snapshot> {
@@ -77,10 +84,7 @@ export async function heavyRefresh(env: Env, deps: RefreshDeps): Promise<Snapsho
     await reconcileFetchedStreams(env.DB, requestedIds, details, trackedIds, nowIso);
   }
 
-  // 3. Prune ended older than 7 days.
-  await pruneEndedBefore(env.DB, new Date(nowMs - 7 * DAY).toISOString());
-
-  // 4. Refresh stale channel metadata (name/avatar/uploads) — tolerant: it's
+  // 3. Refresh stale channel metadata (name/avatar/uploads) — tolerant: it's
   // enrichment only, so a channels.list failure must not discard the stream
   // upserts done above (design §10).
   const stale = await getStaleChannels(env.DB, new Date(nowMs - 7 * DAY).toISOString());
@@ -93,26 +97,28 @@ export async function heavyRefresh(env: Env, deps: RefreshDeps): Promise<Snapsho
     }
   }
 
-  // 5. twvtuber join — tolerant (design §10): roster AND milestones may fail
-  // (rate-limit/network) without sinking the cycle.
+  // 4. The full twvtuber roster supplies enrichment and permanent milestones.
+  // A transient failure leaves all previously stored milestone rows untouched.
   let roster: Map<string, RosterEntry> = new Map();
   try {
-    roster = indexRosterByYoutubeId(await deps.fetchRoster());
+    const vtubers = await deps.fetchRoster();
+    roster = indexRosterByYoutubeId(vtubers);
+    await upsertMilestonesBatch(
+      env.DB,
+      derivePermanentMilestones(vtubers, trackedIds, nowIso),
+      nowIso,
+    );
   } catch (e) {
     console.warn(`roster failed: ${(e as Error).message}`);
   }
-  let milestones: Milestone[] = [];
-  try {
-    milestones = await deps.fetchMilestones(trackedIds, nowIso);
-  } catch (e) {
-    console.warn(`milestones failed: ${(e as Error).message}`);
-  }
 
-  // 6. Build + publish.
+  // 5. Publish a lightweight current snapshot plus the permanent monthly archive.
   const rows = await listEnabledChannels(env.DB);
-  const streams = await collectAllStreams(env.DB);
+  const streams = await collectCurrentStreams(env.DB, nowMs);
+  const milestones = await listSnapshotMilestones(env.DB, nowMs);
   const snapshot = buildSnapshot({ channels: rows, streams, roster, milestones, nowIso, heavyRefreshedAtIso: nowIso });
   await writeSnapshot(env.DATA_PUBLIC, snapshot);
+  await publishArchive(env.DB, env.DATA_PUBLIC, roster, nowIso);
   return snapshot;
 }
 
@@ -130,9 +136,7 @@ export async function lightRefresh(env: Env, deps: RefreshDeps): Promise<Snapsho
     const details = await deps.fetchVideoDetails(activeIds);
     await reconcileFetchedStreams(env.DB, activeIds, details, trackedIds, nowIso);
   }
-  await pruneEndedBefore(env.DB, new Date(nowMs - 7 * DAY).toISOString());
-
-  // Reconstruct roster/milestones/heavy-time from the last heavy snapshot.
+  // Reconstruct roster/heavy-time from the last heavy snapshot.
   const roster: Map<string, RosterEntry> = new Map();
   for (const [cid, c] of Object.entries(last.channels)) {
     if (c.twvtuber_id == null) continue; // no twvtuber match — leave unmapped, exactly like heavyRefresh
@@ -147,13 +151,15 @@ export async function lightRefresh(env: Env, deps: RefreshDeps): Promise<Snapsho
     });
   }
   const rows = await listEnabledChannels(env.DB);
-  const streams = await collectAllStreams(env.DB);
+  const streams = await collectCurrentStreams(env.DB, nowMs);
+  const milestones = await listSnapshotMilestones(env.DB, nowMs);
   const snapshot = buildSnapshot({
-    channels: rows, streams, roster, milestones: last.milestones,
+    channels: rows, streams, roster, milestones,
     nowIso, heavyRefreshedAtIso: last.heavy_refreshed_at,
   });
   await writeSnapshot(env.DATA_PUBLIC, snapshot);
+  await publishArchive(env.DB, env.DATA_PUBLIC, roster, nowIso);
   return snapshot;
 }
 
-export { collectAllStreams, readSnapshot, DAY };
+export { collectCurrentStreams, readSnapshot, DAY };

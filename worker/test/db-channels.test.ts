@@ -3,6 +3,8 @@ import { env } from "cloudflare:test";
 import { listEnabledChannels, upsertChannelId, setChannelMeta, getStaleChannels } from "../src/db";
 
 beforeEach(async () => {
+  await env.DB.exec("DELETE FROM milestones");
+  await env.DB.exec("DELETE FROM streams");
   await env.DB.exec("DELETE FROM channels");
 });
 

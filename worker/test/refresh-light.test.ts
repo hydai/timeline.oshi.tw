@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { env } from "cloudflare:test";
-import { listStreamsByStatus, upsertChannelId, upsertStream } from "../src/db";
+import { listStreamsByStatus, upsertChannelId, upsertMilestonesBatch, upsertStream } from "../src/db";
 import { lightRefresh, type RefreshDeps } from "../src/refresh";
 import { writeSnapshot } from "../src/r2";
 import type { Snapshot, StreamRecord } from "../src/types";
@@ -15,7 +15,7 @@ const lastHeavy: Snapshot = {
   channels: { UCaaa: { name: "水樹", handle: "@mizuki", avatar: "https://a", group: "子午計畫", nationality: "TW", youtube_subs: 207000, twvtuber_id: "tw1" } },
   groups: ["子午計畫"],
   live: [], upcoming: [], recent: [],
-  milestones: [{ channelId: "UCaaa", type: "anniversary", date: "2026-10-31" }],
+  milestones: [{ channelId: "UCaaa", type: "anniversary", date: "2026-07-20" }],
 };
 
 function deps(over: Partial<RefreshDeps> = {}): RefreshDeps {
@@ -24,18 +24,20 @@ function deps(over: Partial<RefreshDeps> = {}): RefreshDeps {
     fetchVideoDetails: async () => [{ ...upcomingRec, status: "live", actualStart: "2026-07-21T01:05:00Z", concurrentViewers: 12 }],
     fetchChannelMeta: vi.fn(async () => []),
     fetchRoster: vi.fn(async () => []),
-    fetchMilestones: vi.fn(async () => []),
     now: () => "2026-07-21T01:10:00Z",
     ...over,
   };
 }
 
 beforeEach(async () => {
+  await env.DB.exec("DELETE FROM milestones");
   await env.DB.exec("DELETE FROM streams");
   await env.DB.exec("DELETE FROM channels");
   await env.DATA_PUBLIC.delete("streams/v1/snapshot.json");
+  await env.DATA_PUBLIC.delete("streams/v1/archive/index.json");
   await upsertChannelId(env.DB, "UCaaa", "2026-07-01T00:00:00Z");
   await upsertStream(env.DB, upcomingRec, "2026-07-21T00:00:00Z");
+  await upsertMilestonesBatch(env.DB, lastHeavy.milestones, "2026-07-21T00:00:00Z");
   await writeSnapshot(env.DATA_PUBLIC, lastHeavy);
 });
 
@@ -54,7 +56,6 @@ describe("lightRefresh", () => {
     expect(d.fetchRecentVideoIds).not.toHaveBeenCalled();
     expect(d.fetchChannelMeta).not.toHaveBeenCalled();
     expect(d.fetchRoster).not.toHaveBeenCalled();
-    expect(d.fetchMilestones).not.toHaveBeenCalled();
   });
 
   it("removes a known active stream omitted from a successful YouTube response", async () => {
@@ -64,6 +65,10 @@ describe("lightRefresh", () => {
     expect(snap!.live).toEqual([]);
     expect(snap!.upcoming).toEqual([]);
     expect(await listStreamsByStatus(env.DB, "upcoming")).toEqual([]);
+    const retained = await env.DB
+      .prepare("SELECT availability FROM streams WHERE video_id = 'U'")
+      .first<{ availability: string }>();
+    expect(retained).toEqual({ availability: "unavailable" });
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('"videoIds":["U"]'));
   });
 
