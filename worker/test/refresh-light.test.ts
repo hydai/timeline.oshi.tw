@@ -1,6 +1,6 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { env } from "cloudflare:test";
-import { upsertChannelId, upsertStream } from "../src/db";
+import { listStreamsByStatus, upsertChannelId, upsertStream } from "../src/db";
 import { lightRefresh, type RefreshDeps } from "../src/refresh";
 import { writeSnapshot } from "../src/r2";
 import type { Snapshot, StreamRecord } from "../src/types";
@@ -39,6 +39,8 @@ beforeEach(async () => {
   await writeSnapshot(env.DATA_PUBLIC, lastHeavy);
 });
 
+afterEach(() => vi.restoreAllMocks());
+
 describe("lightRefresh", () => {
   it("flips a known upcoming to live, preserving channels+milestones+heavy time", async () => {
     const d = deps();
@@ -53,6 +55,38 @@ describe("lightRefresh", () => {
     expect(d.fetchChannelMeta).not.toHaveBeenCalled();
     expect(d.fetchRoster).not.toHaveBeenCalled();
     expect(d.fetchMilestones).not.toHaveBeenCalled();
+  });
+
+  it("removes a known active stream omitted from a successful YouTube response", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const snap = await lightRefresh(env, deps({ fetchVideoDetails: async () => [] }));
+
+    expect(snap!.live).toEqual([]);
+    expect(snap!.upcoming).toEqual([]);
+    expect(await listStreamsByStatus(env.DB, "upcoming")).toEqual([]);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('"videoIds":["U"]'));
+  });
+
+  it("keeps returned streams while removing omitted peers from the same request", async () => {
+    await upsertStream(env.DB, {
+      ...upcomingRec, videoId: "PRIVATE", status: "live", scheduledStart: null,
+      actualStart: "2026-07-20T23:00:00Z",
+    }, "2026-07-21T00:00:00Z");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const snap = await lightRefresh(env, deps());
+
+    expect(snap!.live.map((s) => s.videoId)).toEqual(["U"]);
+    expect((await listStreamsByStatus(env.DB, "live")).map((s) => s.videoId)).toEqual(["U"]);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('"videoIds":["PRIVATE"]'));
+  });
+
+  it("keeps known active streams when the YouTube request fails", async () => {
+    await expect(lightRefresh(env, deps({
+      fetchVideoDetails: async () => { throw new Error("YouTube unavailable"); },
+    }))).rejects.toThrow("YouTube unavailable");
+
+    expect((await listStreamsByStatus(env.DB, "upcoming")).map((s) => s.videoId)).toEqual(["U"]);
   });
 
   it("returns null when no prior heavy snapshot exists", async () => {

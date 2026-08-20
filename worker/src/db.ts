@@ -101,6 +101,17 @@ export async function upsertStreamsBatch(db: D1Database, recs: StreamRecord[], n
   }
 }
 
+const DELETE_STREAM_SQL = `DELETE FROM streams WHERE video_id = ?1`;
+
+/** Remove unavailable/private videos in bounded D1 batches. */
+export async function deleteStreamsBatch(db: D1Database, videoIds: string[]): Promise<void> {
+  if (videoIds.length === 0) return;
+  for (let i = 0; i < videoIds.length; i += BATCH_CHUNK_SIZE) {
+    const chunk = videoIds.slice(i, i + BATCH_CHUNK_SIZE);
+    await db.batch(chunk.map((id) => db.prepare(DELETE_STREAM_SQL).bind(id)));
+  }
+}
+
 export async function getActiveVideoIds(db: D1Database, sinceIso: string): Promise<string[]> {
   const { results } = await db
     .prepare(

@@ -1,6 +1,9 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { env } from "cloudflare:test";
-import { upsertChannelId, upsertStreamsBatch, setChannelMetasBatch, listStreamsByStatus, listEnabledChannels } from "../src/db";
+import {
+  deleteStreamsBatch, listEnabledChannels, listStreamsByStatus, setChannelMetasBatch,
+  upsertChannelId, upsertStreamsBatch,
+} from "../src/db";
 import type { ChannelMeta, StreamRecord } from "../src/types";
 
 const base: StreamRecord = {
@@ -64,6 +67,42 @@ describe("upsertStreamsBatch", () => {
 
     const live = await listStreamsByStatus(env.DB, "live");
     expect(live.length).toBe(250);
+  });
+});
+
+describe("deleteStreamsBatch", () => {
+  it("deletes every requested stream regardless of its stored status", async () => {
+    await upsertStreamsBatch(env.DB, [
+      { ...base, videoId: "v1", status: "live" },
+      { ...base, videoId: "v2", status: "upcoming" },
+      { ...base, videoId: "v3", status: "ended", actualEnd: "2026-07-21T02:00:00Z" },
+    ], "2026-07-21T00:05:00Z");
+
+    await deleteStreamsBatch(env.DB, ["v1", "v3"]);
+
+    expect(await listStreamsByStatus(env.DB, "live")).toEqual([]);
+    expect((await listStreamsByStatus(env.DB, "upcoming")).map((s) => s.videoId)).toEqual(["v2"]);
+    expect(await listStreamsByStatus(env.DB, "ended")).toEqual([]);
+  });
+
+  it("no-ops on an empty array", async () => {
+    const batchSpy = vi.spyOn(env.DB, "batch");
+    await expect(deleteStreamsBatch(env.DB, [])).resolves.toBeUndefined();
+    expect(batchSpy).not.toHaveBeenCalled();
+    batchSpy.mockRestore();
+  });
+
+  it("chunks large deletes into batches of at most 100 statements", async () => {
+    const recs: StreamRecord[] = Array.from({ length: 250 }, (_, i) => ({
+      ...base, videoId: `v${i}`,
+    }));
+    await upsertStreamsBatch(env.DB, recs, "2026-07-21T00:05:00Z");
+
+    const batchSpy = vi.spyOn(env.DB, "batch");
+    await deleteStreamsBatch(env.DB, recs.map((r) => r.videoId));
+    expect(batchSpy.mock.calls.map(([stmts]) => stmts.length)).toEqual([100, 100, 50]);
+    batchSpy.mockRestore();
+    expect(await listStreamsByStatus(env.DB, "live")).toEqual([]);
   });
 });
 

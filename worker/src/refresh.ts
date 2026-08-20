@@ -1,7 +1,7 @@
 import type { ChannelMeta, Env, Milestone, RosterEntry, Snapshot, StreamRecord } from "./types";
 import type { TwVtuber } from "./twvtuber";
 import {
-  getActiveVideoIds, getStaleChannels, listEnabledChannels, listStreamsByStatus,
+  deleteStreamsBatch, getActiveVideoIds, getStaleChannels, listEnabledChannels, listStreamsByStatus,
   pruneEndedBefore, setChannelMetasBatch, upsertStreamsBatch,
 } from "./db";
 import { indexRosterByYoutubeId } from "./twvtuber";
@@ -28,6 +28,32 @@ async function collectAllStreams(db: D1Database): Promise<StreamRecord[]> {
   return [...live, ...upcoming, ...ended];
 }
 
+async function reconcileFetchedStreams(
+  db: D1Database,
+  requestedIds: string[],
+  details: StreamRecord[],
+  trackedChannelIds: Set<string>,
+  nowIso: string,
+): Promise<void> {
+  // A successful videos.list response omits private/deleted videos. This
+  // function is reached only after the complete API request succeeds, so a
+  // transport/API failure cannot be mistaken for an unavailable video.
+  const returnedIds = new Set(details.map((stream) => stream.videoId));
+  const missingIds = requestedIds.filter((id) => !returnedIds.has(id));
+  const tracked = details.filter((stream) => trackedChannelIds.has(stream.channelId));
+
+  await upsertStreamsBatch(db, tracked, nowIso);
+  await deleteStreamsBatch(db, missingIds);
+
+  if (missingIds.length > 0) {
+    console.warn(JSON.stringify({
+      message: "removed streams unavailable from YouTube videos.list",
+      count: missingIds.length,
+      videoIds: missingIds,
+    }));
+  }
+}
+
 export async function heavyRefresh(env: Env, deps: RefreshDeps): Promise<Snapshot> {
   const nowIso = deps.now();
   const nowMs = new Date(nowIso).getTime();
@@ -46,9 +72,9 @@ export async function heavyRefresh(env: Env, deps: RefreshDeps): Promise<Snapsho
 
   // 2. Confirm status via videos.list; upsert those on tracked channels.
   if (candidates.size > 0) {
-    const details = await deps.fetchVideoDetails([...candidates]);
-    const tracked = details.filter((s) => trackedIds.has(s.channelId));
-    await upsertStreamsBatch(env.DB, tracked, nowIso);
+    const requestedIds = [...candidates];
+    const details = await deps.fetchVideoDetails(requestedIds);
+    await reconcileFetchedStreams(env.DB, requestedIds, details, trackedIds, nowIso);
   }
 
   // 3. Prune ended older than 7 days.
@@ -102,8 +128,7 @@ export async function lightRefresh(env: Env, deps: RefreshDeps): Promise<Snapsho
   if (activeIds.length > 0) {
     const trackedIds = new Set((await listEnabledChannels(env.DB)).map((c) => c.channel_id));
     const details = await deps.fetchVideoDetails(activeIds);
-    const tracked = details.filter((s) => trackedIds.has(s.channelId));
-    await upsertStreamsBatch(env.DB, tracked, nowIso);
+    await reconcileFetchedStreams(env.DB, activeIds, details, trackedIds, nowIso);
   }
   await pruneEndedBefore(env.DB, new Date(nowMs - 7 * DAY).toISOString());
 

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { env } from "cloudflare:test";
-import { upsertChannelId } from "../src/db";
+import { listStreamsByStatus, upsertChannelId, upsertStream } from "../src/db";
 import { heavyRefresh, type RefreshDeps } from "../src/refresh";
 import { readSnapshot } from "../src/r2";
 import type { StreamRecord } from "../src/types";
@@ -37,6 +37,14 @@ describe("heavyRefresh", () => {
     expect(snap.channels["UCaaa"]!.group).toBe("子午計畫");
     const persisted = await readSnapshot(env.DATA_PUBLIC);
     expect(persisted!.live.length).toBe(1);
+  });
+
+  it("removes a stored active stream omitted from a successful YouTube response", async () => {
+    await upsertStream(env.DB, liveRec, "2026-07-20T00:00:00Z");
+    const snap = await heavyRefresh(env, deps({ fetchVideoDetails: async () => [] }));
+
+    expect(snap.live).toEqual([]);
+    expect(await listStreamsByStatus(env.DB, "live")).toEqual([]);
   });
 
   it("tolerates roster failure and still publishes", async () => {
