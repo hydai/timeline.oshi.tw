@@ -14,3 +14,69 @@ export function formatRelativeTime(iso: string, nowMs: number): string {
   if (abs < DAY) return `${Math.floor(abs / HOUR)} 小時${suffix}`;
   return `${Math.floor(abs / DAY)} 天${suffix}`;
 }
+const TAIPEI = "Asia/Taipei";
+
+// en-CA renders ISO-shaped YYYY-MM-DD; h23 keeps midnight at 00:00 rather than 24:00.
+const dayFormatter = new Intl.DateTimeFormat("en-CA", {
+  timeZone: TAIPEI,
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
+const clockFormatter = new Intl.DateTimeFormat("en-GB", {
+  timeZone: TAIPEI,
+  hour: "2-digit",
+  minute: "2-digit",
+  hourCycle: "h23",
+});
+
+const WEEKDAY = ["週日", "週一", "週二", "週三", "週四", "週五", "週六"];
+
+/** Calendar day in Taipei (`YYYY-MM-DD`), so day grouping never depends on the viewer's clock. */
+export function taipeiDayKey(iso: string): string {
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return "";
+  return dayFormatter.format(t);
+}
+
+/** Taipei wall-clock time as `HH:MM`. */
+export function formatClock(iso: string): string {
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return "";
+  return clockFormatter.format(t);
+}
+
+/** Shift a `YYYY-MM-DD` key by whole days, staying in the Taipei calendar. */
+export function shiftDayKey(dayKey: string, days: number): string {
+  const [y, m, d] = dayKey.split("-").map(Number);
+  if (!y || !m || !d) return "";
+  const shifted = new Date(Date.UTC(y, m - 1, d) + days * DAY);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${shifted.getUTCFullYear()}-${pad(shifted.getUTCMonth() + 1)}-${pad(shifted.getUTCDate())}`;
+}
+
+/** Whole days from `from` to `to`, both `YYYY-MM-DD` Taipei keys. */
+export function daysBetween(from: string, to: string): number {
+  const parse = (key: string) => {
+    const [y, m, d] = key.split("-").map(Number);
+    return y && m && d ? Date.UTC(y, m - 1, d) : NaN;
+  };
+  const a = parse(from);
+  const b = parse(to);
+  if (Number.isNaN(a) || Number.isNaN(b)) return 0;
+  return Math.round((b - a) / DAY);
+}
+
+/** Day-divider text: relative for today/tomorrow, otherwise the date with the weekday beneath. */
+export function formatDayHeading(dayKey: string, nowMs: number): { title: string; date: string } {
+  const [y, m, d] = dayKey.split("-").map(Number);
+  if (!y || !m || !d) return { title: "", date: "" };
+  // Anchor at UTC noon so the weekday can never slip across a timezone boundary.
+  const weekday = WEEKDAY[new Date(Date.UTC(y, m - 1, d, 12)).getUTCDay()] ?? "";
+  const monthDay = `${m}/${d}`;
+  const today = taipeiDayKey(new Date(nowMs).toISOString());
+
+  if (dayKey === today) return { title: "今天", date: `${monthDay} ${weekday}` };
+  if (dayKey === shiftDayKey(today, 1)) return { title: "明天", date: `${monthDay} ${weekday}` };
+  return { title: monthDay, date: weekday };
+}
