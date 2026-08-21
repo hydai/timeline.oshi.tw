@@ -52,7 +52,22 @@ describe("fetchRoster", () => {
 
     expect(await fetchRoster("https://twvtuber.example")).toEqual(vtubers);
     expect(fetchMock).toHaveBeenCalledWith(
-      "https://twvtuber.example/v1/vtubers?region=TW&limit=100&offset=0",
+      "https://twvtuber.example/v1/vtubers?limit=100&offset=0",
     );
+  });
+
+  it("does not filter by region", async () => {
+    // Which channels we track is decided by seed/channels.json, not by nationality.
+    // Filtering the roster by region=TW silently stripped the group off tracked
+    // channels filed upstream as JP / MY / UNKNOWN — 浠Mizuki lost 子午計畫 that way.
+    const fetchMock = vi.fn(async (_url: string) => new Response(JSON.stringify({ results: [] }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await fetchRoster("https://twvtuber.example");
+
+    expect(fetchMock).toHaveBeenCalled();
+    for (const [url] of fetchMock.mock.calls) {
+      expect(url).not.toContain("region=");
+    }
   });
 });

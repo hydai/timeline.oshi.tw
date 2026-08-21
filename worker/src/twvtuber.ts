@@ -79,7 +79,10 @@ export async function fetchRoster(baseUrl: string): Promise<TwVtuber[]> {
   const out: TwVtuber[] = [];
   const limit = 100;
   for (let offset = 0; ; offset += limit) {
-    const url = `${baseUrl}/v1/vtubers?region=TW&limit=${limit}&offset=${offset}`;
+    // No region filter: which channels we track is decided by seed/channels.json, and
+    // several of them are filed upstream as JP / MY / UNKNOWN. Filtering by region=TW
+    // dropped those from the index, so they silently lost their group and twvtuber_id.
+    const url = `${baseUrl}/v1/vtubers?limit=${limit}&offset=${offset}`;
     const res = await fetch(url);
     if (!res.ok) throw new Error(`twvtuber roster failed (${res.status})`);
     const data = (await res.json()) as ListResponse;
