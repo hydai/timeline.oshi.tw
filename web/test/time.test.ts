@@ -65,6 +65,17 @@ describe("formatDayHeading", () => {
   it("labels any other day by date, with the weekday as the subtitle", () => {
     expect(formatDayHeading("2026-08-29", nowTaipei)).toEqual({ title: "8/29", date: "週六" });
   });
+  it("includes the year once the day leaves the current year", () => {
+    // Placeholder 週表 streams sit years out. Without the year "6/9" reads as a date
+    // that has already passed, which is exactly backwards.
+    expect(formatDayHeading("2027-06-09", nowTaipei)).toEqual({ title: "2027/6/9", date: "週三" });
+    expect(formatDayHeading("2028-07-31", nowTaipei)).toEqual({ title: "2028/7/31", date: "週一" });
+  });
+
+  it("omits the year within the current year", () => {
+    expect(formatDayHeading("2026-12-31", nowTaipei)).toEqual({ title: "12/31", date: "週四" });
+  });
+
   it("labels a past day by date too", () => {
     expect(formatDayHeading("2026-08-20", nowTaipei)).toEqual({ title: "8/20", date: "週四" });
   });

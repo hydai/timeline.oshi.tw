@@ -61,8 +61,11 @@ export function formatDayHeading(dayKey: string, nowMs: number): { title: string
   if (!y || !m || !d) return { title: "", date: "" };
   // Anchor at UTC noon so the weekday can never slip across a timezone boundary.
   const weekday = WEEKDAY[new Date(Date.UTC(y, m - 1, d, 12)).getUTCDay()] ?? "";
-  const monthDay = `${m}/${d}`;
   const today = taipeiDayKey(new Date(nowMs).toISOString());
+  // Carry the year once it differs from today's: a bare "6/9" on a 2027 entry reads
+  // as a date that has already gone by, which is the opposite of the truth.
+  const sameYear = dayKey.slice(0, 4) === today.slice(0, 4);
+  const monthDay = sameYear ? `${m}/${d}` : `${y}/${m}/${d}`;
 
   if (dayKey === today) return { title: "今天", date: `${monthDay} ${weekday}` };
   if (dayKey === shiftDayKey(today, 1)) return { title: "明天", date: `${monthDay} ${weekday}` };
