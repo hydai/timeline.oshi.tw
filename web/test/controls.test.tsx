@@ -1,9 +1,11 @@
 import { describe, it, expect, vi } from "vitest";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import GroupFilter from "@/app/components/GroupFilter";
 import SearchBar from "@/app/components/SearchBar";
 import TimelineTypeFilter from "@/app/components/TimelineTypeFilter";
 import VTuberFilter from "@/app/components/VTuberFilter";
+import { UNGROUPED_FILTER_VALUE } from "@/lib/filter";
 
 const vtubers = [
   {
@@ -26,6 +28,35 @@ describe("SearchBar", () => {
     render(<SearchBar value="" onChange={onChange} />);
     await userEvent.type(screen.getByLabelText("搜尋 VTuber"), "水");
     expect(onChange).toHaveBeenCalledWith("水");
+  });
+});
+
+describe("GroupFilter", () => {
+  it("renders counts, reflects selection, and emits company and reset choices", async () => {
+    const onSelect = vi.fn();
+    render(
+      <GroupFilter
+        options={[
+          { value: UNGROUPED_FILTER_VALUE, name: "個人勢", itemCount: 3 },
+          { value: "子午計畫", name: "子午計畫", itemCount: 5 },
+          { value: "空團體", name: "空團體", itemCount: 0 },
+        ]}
+        selected="子午計畫"
+        totalCount={8}
+        onSelect={onSelect}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "全部團體" })).toHaveTextContent("8");
+    expect(screen.getByRole("button", { name: "子午計畫" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "個人勢" })).toHaveTextContent("3");
+    expect(screen.getByRole("button", { name: "空團體" })).toHaveTextContent("0");
+
+    await userEvent.click(screen.getByRole("button", { name: "個人勢" }));
+    expect(onSelect).toHaveBeenCalledWith(UNGROUPED_FILTER_VALUE);
+
+    await userEvent.click(screen.getByRole("button", { name: "全部團體" }));
+    expect(onSelect).toHaveBeenCalledWith(null);
   });
 });
 

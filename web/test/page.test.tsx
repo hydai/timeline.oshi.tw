@@ -149,6 +149,39 @@ describe("Home page", () => {
     expect(screen.getByRole("button", { name: "全部" })).toHaveAttribute("aria-pressed", "true");
   });
 
+  it("filters by company, narrows VTuber choices, and clears an incompatible VTuber selection", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify(filterFixture), { status: 200 })),
+    );
+    render(<Home />);
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "子午計畫" })).toBeInTheDocument());
+    await userEvent.click(screen.getByRole("button", { name: "子午計畫" }));
+
+    expect(screen.getByRole("link", { name: /水樹的直播/ })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /Gabu 的直播/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "水樹" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Gabu" })).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "水樹" }));
+    expect(screen.getByRole("button", { name: "水樹" })).toHaveAttribute("aria-pressed", "true");
+
+    await userEvent.click(screen.getByRole("button", { name: "子午計畫" }));
+    expect(screen.getByRole("button", { name: "水樹" })).toHaveAttribute("aria-pressed", "true");
+
+    await userEvent.click(screen.getByRole("button", { name: "個人勢" }));
+
+    expect(screen.queryByRole("link", { name: /水樹的直播/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Gabu 的直播/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Gabu" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "全部" })).toHaveAttribute("aria-pressed", "true");
+
+    await userEvent.click(screen.getByRole("button", { name: "全部團體" }));
+    expect(screen.getByRole("link", { name: /水樹的直播/ })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Gabu 的直播/ })).toBeInTheDocument();
+  });
+
   it("quickly filters the river by content type and restores it with 全部類型", async () => {
     vi.stubGlobal(
       "fetch",

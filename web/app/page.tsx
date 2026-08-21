@@ -5,13 +5,16 @@ import {
 } from "@/lib/snapshot";
 import { buildArchiveTimeline, buildTimeline, mergeTimelines } from "@/lib/timeline";
 import {
+  buildGroupFilterOptions,
   buildTimelineKindCounts,
   buildVTuberFilterOptions,
   filterTimeline,
+  type GroupFilterValue,
   type TimelineKind,
 } from "@/lib/filter";
 import type { ArchiveIndex, ArchiveMonth, Snapshot } from "@/lib/types";
 import Header from "./components/Header";
+import GroupFilter from "./components/GroupFilter";
 import SearchBar from "./components/SearchBar";
 import TimelineTypeFilter from "./components/TimelineTypeFilter";
 import VTuberFilter from "./components/VTuberFilter";
@@ -28,6 +31,7 @@ export default function Home() {
   const [archiveError, setArchiveError] = useState(false);
   const [error, setError] = useState(false);
   const [query, setQuery] = useState("");
+  const [selectedGroup, setSelectedGroup] = useState<GroupFilterValue>(null);
   const [selectedChannelId, setSelectedChannelId] = useState<string | null>(null);
   const [selectedKind, setSelectedKind] = useState<TimelineKind | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
@@ -104,10 +108,18 @@ export default function Home() {
     const current = snap ? buildTimeline(snap) : [];
     return mergeTimelines(current, buildArchiveTimeline(archiveMonths));
   }, [archiveMonths, snap]);
-  const vtubers = useMemo(() => buildVTuberFilterOptions(timeline), [timeline]);
+  const groups = useMemo(
+    () => buildGroupFilterOptions(timeline, snap?.groups ?? []),
+    [snap?.groups, timeline],
+  );
+  const groupedTimeline = useMemo(
+    () => filterTimeline(timeline, "", null, null, selectedGroup),
+    [selectedGroup, timeline],
+  );
+  const vtubers = useMemo(() => buildVTuberFilterOptions(groupedTimeline), [groupedTimeline]);
   const kindCounts = useMemo(() => {
-    const loaded = buildTimelineKindCounts(timeline);
-    if (!archiveIndex || !snap) return loaded;
+    const loaded = buildTimelineKindCounts(groupedTimeline);
+    if (selectedGroup || !archiveIndex || !snap) return loaded;
     const archivedStreams = archiveIndex.months.reduce((sum, month) => sum + month.streams, 0);
     const archivedMilestones = archiveIndex.months.reduce((sum, month) => sum + month.milestones, 0);
     const generatedDate = snap.generated_at.slice(0, 10);
@@ -117,10 +129,10 @@ export default function Home() {
       recent: Math.max(loaded.recent, archivedStreams),
       milestone: Math.max(loaded.milestone, archivedMilestones + futureMilestones),
     };
-  }, [archiveIndex, snap, timeline]);
+  }, [archiveIndex, groupedTimeline, selectedGroup, snap]);
   const items = useMemo(
-    () => filterTimeline(timeline, query, selectedChannelId, selectedKind),
-    [timeline, query, selectedChannelId, selectedKind],
+    () => filterTimeline(timeline, query, selectedChannelId, selectedKind, selectedGroup),
+    [timeline, query, selectedChannelId, selectedKind, selectedGroup],
   );
   const historyTotal = useMemo(() => {
     if (!archiveIndex || !historyKind) return 0;
@@ -138,75 +150,88 @@ export default function Home() {
   }, [archiveMonths, historyKind]);
 
   return (
-    <div className="relative mx-auto min-h-screen max-w-2xl px-4 py-6">
+    <div className="relative mx-auto min-h-screen max-w-5xl px-4 py-6">
       <div className="pointer-events-none absolute -top-20 -right-20 h-96 w-96 rounded-full bg-pink-300/20 blur-3xl" aria-hidden />
       <div className="pointer-events-none absolute top-40 -left-20 h-72 w-72 rounded-full bg-blue-300/20 blur-3xl" aria-hidden />
       <div className="relative z-10">
         <Header updatedAt={snap?.generated_at ?? ""} nowMs={nowMs} />
         {!snap && error ? (
-          <div role="status" aria-live="polite" className="glass rounded-2xl p-6 text-center text-text-secondary">
+          <div role="status" aria-live="polite" className="glass mx-auto max-w-2xl rounded-2xl p-6 text-center text-text-secondary">
             <p>載入失敗，請稍後再試。</p>
             <button type="button" onClick={load} className="glass mt-3 rounded-pill px-4 py-1 text-sm text-text-secondary">重試</button>
           </div>
         ) : !snap ? (
-          <div role="status" aria-live="polite" className="glass rounded-2xl p-6 text-center text-text-secondary">載入中…</div>
+          <div role="status" aria-live="polite" className="glass mx-auto max-w-2xl rounded-2xl p-6 text-center text-text-secondary">載入中…</div>
         ) : (
-          <>
-            <div className="mb-3 flex flex-col gap-3">
-              <SearchBar value={query} onChange={setQuery} />
-              <VTuberFilter
-                options={vtubers}
-                selected={selectedChannelId}
+          <div className="lg:grid lg:grid-cols-[208px_minmax(0,1fr)] lg:items-start lg:gap-6">
+            <div className="mb-4 lg:mb-0">
+              <GroupFilter
+                options={groups}
+                selected={selectedGroup}
                 totalCount={timeline.length}
-                onSelect={setSelectedChannelId}
+                onSelect={(group) => {
+                  if (group !== selectedGroup) setSelectedChannelId(null);
+                  setSelectedGroup(group);
+                }}
               />
             </div>
-            <div className="sticky top-2 z-20 mb-4">
-              <TimelineTypeFilter
-                counts={kindCounts}
-                selected={selectedKind}
-                onSelect={setSelectedKind}
-              />
-            </div>
-            <Timeline items={items} nowMs={nowMs} />
-            {historyKind && (
-              <div className="mt-5 flex flex-col items-center gap-2 text-center text-xs text-text-secondary" aria-live="polite">
-                {!archiveIndex && !archiveError && <span>正在讀取永久封存…</span>}
-                {archiveIndex && historyTotal > 0 && (
-                  <span>
-                    已載入 {Math.min(historyLoaded, historyTotal).toLocaleString()} / {historyTotal.toLocaleString()} 筆歷史封存
-                  </span>
-                )}
-                {nextArchive && (
-                  <button
-                    type="button"
-                    onClick={() => void loadNextArchiveMonth()}
-                    disabled={archiveLoading}
-                    className="glass rounded-pill px-4 py-2 text-sm font-semibold text-text-primary disabled:cursor-wait disabled:opacity-60"
-                  >
-                    {archiveLoading ? "載入封存中…" : archiveError ? "重試載入封存" : "載入更早紀錄"}
-                  </button>
-                )}
-                {archiveError && !nextArchive && (
-                  <button
-                    type="button"
-                    onClick={load}
-                    className="glass rounded-pill px-4 py-2 text-sm font-semibold text-text-primary"
-                  >
-                    重試讀取封存
-                  </button>
-                )}
-                {archiveIndex && historyTotal === 0 && (
-                  <span>
-                    {historyKind === "recent" ? "目前還沒有已完成直播封存。" : "目前還沒有已發生的里程碑封存。"}
-                  </span>
-                )}
-                {archiveIndex && historyTotal > 0 && !nextArchive && historyLoaded >= historyTotal && (
-                  <span>已載入全部永久紀錄。</span>
-                )}
+            <div className="min-w-0">
+              <div className="mb-3 flex flex-col gap-3">
+                <SearchBar value={query} onChange={setQuery} />
+                <VTuberFilter
+                  options={vtubers}
+                  selected={selectedChannelId}
+                  totalCount={groupedTimeline.length}
+                  onSelect={setSelectedChannelId}
+                />
               </div>
-            )}
-          </>
+              <div className="sticky top-2 z-20 mb-4">
+                <TimelineTypeFilter
+                  counts={kindCounts}
+                  selected={selectedKind}
+                  onSelect={setSelectedKind}
+                />
+              </div>
+              <Timeline items={items} nowMs={nowMs} />
+              {historyKind && (
+                <div className="mt-5 flex flex-col items-center gap-2 text-center text-xs text-text-secondary" aria-live="polite">
+                  {!archiveIndex && !archiveError && <span>正在讀取永久封存…</span>}
+                  {archiveIndex && historyTotal > 0 && (
+                    <span>
+                      已載入 {Math.min(historyLoaded, historyTotal).toLocaleString()} / {historyTotal.toLocaleString()} 筆歷史封存
+                    </span>
+                  )}
+                  {nextArchive && (
+                    <button
+                      type="button"
+                      onClick={() => void loadNextArchiveMonth()}
+                      disabled={archiveLoading}
+                      className="glass rounded-pill px-4 py-2 text-sm font-semibold text-text-primary disabled:cursor-wait disabled:opacity-60"
+                    >
+                      {archiveLoading ? "載入封存中…" : archiveError ? "重試載入封存" : "載入更早紀錄"}
+                    </button>
+                  )}
+                  {archiveError && !nextArchive && (
+                    <button
+                      type="button"
+                      onClick={load}
+                      className="glass rounded-pill px-4 py-2 text-sm font-semibold text-text-primary"
+                    >
+                      重試讀取封存
+                    </button>
+                  )}
+                  {archiveIndex && historyTotal === 0 && (
+                    <span>
+                      {historyKind === "recent" ? "目前還沒有已完成直播封存。" : "目前還沒有已發生的里程碑封存。"}
+                    </span>
+                  )}
+                  {archiveIndex && historyTotal > 0 && !nextArchive && historyLoaded >= historyTotal && (
+                    <span>已載入全部永久紀錄。</span>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
         )}
       </div>
     </div>

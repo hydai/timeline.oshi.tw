@@ -1,9 +1,11 @@
 import { describe, it, expect } from "vitest";
 import {
+  buildGroupFilterOptions,
   buildTimelineKindCounts,
   buildVTuberFilterOptions,
   filterTimeline,
   timelineChannelId,
+  UNGROUPED_FILTER_VALUE,
 } from "@/lib/filter";
 import type { SnapshotChannel, TimelineItem } from "@/lib/types";
 
@@ -13,11 +15,12 @@ const channel = (
   name: string,
   handle: string,
   avatar: string | null = null,
+  group: string | null = null,
 ): SnapshotChannel => ({
   name,
   handle,
   avatar,
-  group: null,
+  group,
   nationality: "TW",
   youtube_subs: 1,
   twvtuber_id: "t",
@@ -29,6 +32,7 @@ const streamItem = (
   handle = `@${name}`,
   avatar: string | null = null,
   kind: StreamTimelineKind = "recent",
+  group: string | null = null,
 ): TimelineItem => ({
   kind,
   sortAt: 0,
@@ -39,7 +43,7 @@ const streamItem = (
     thumbnail: null,
     url: "u",
   },
-  channel: channel(name, handle, avatar),
+  channel: channel(name, handle, avatar, group),
 });
 
 const milestoneItem = (
@@ -47,6 +51,7 @@ const milestoneItem = (
   channelId: string,
   handle = `@${name}`,
   avatar: string | null = null,
+  group: string | null = null,
 ): TimelineItem => ({
   kind: "milestone",
   sortAt: 0,
@@ -55,7 +60,7 @@ const milestoneItem = (
     type: "anniversary",
     date: "2026-07-24",
   },
-  channel: channel(name, handle, avatar),
+  channel: channel(name, handle, avatar, group),
 });
 
 const items = [
@@ -125,6 +130,48 @@ describe("filterTimeline", () => {
     expect(result).toContain(items[3]);
     expect(result.some((item) => item.kind === "milestone")).toBe(true);
     expect(result.every((item) => timelineChannelId(item) === "channel-mizuki")).toBe(true);
+  });
+
+  it("filters companies and ungrouped VTubers and composes with other filters", () => {
+    const grouped = [
+      streamItem("水樹", "channel-mizuki", "@mizuki", null, "live", "子午計畫"),
+      streamItem("煌", "channel-kirali", "@kirali", null, "recent", "子午計畫"),
+      streamItem("Gabu", "channel-gabu", "@gabu", null, "live"),
+      milestoneItem("白白虹", "channel-rainbow", "@rainbow", null, "SquareLive"),
+    ];
+
+    expect(filterTimeline(grouped, "", null, null, "子午計畫").map((item) => item.channel.name)).toEqual([
+      "水樹",
+      "煌",
+    ]);
+    expect(filterTimeline(grouped, "", null, null, UNGROUPED_FILTER_VALUE)).toEqual([grouped[2]]);
+    expect(filterTimeline(grouped, "水", "channel-mizuki", "live", "子午計畫")).toEqual([grouped[0]]);
+    expect(filterTimeline(grouped, "", null, "recent", "SquareLive")).toEqual([]);
+  });
+});
+
+describe("buildGroupFilterOptions", () => {
+  it("puts individual VTubers first, counts items, and preserves known empty groups", () => {
+    const grouped = [
+      streamItem("水樹", "channel-mizuki", "@mizuki", null, "live", "子午計畫"),
+      milestoneItem("煌", "channel-kirali", "@kirali", null, "子午計畫"),
+      streamItem("Gabu", "channel-gabu"),
+      streamItem("白白虹", "channel-rainbow", "@rainbow", null, "recent", "SquareLive"),
+    ];
+
+    const options = buildGroupFilterOptions(grouped, ["空團體", "子午計畫"]);
+
+    expect(options[0]).toEqual({
+      value: UNGROUPED_FILTER_VALUE,
+      name: "個人勢",
+      itemCount: 1,
+    });
+    expect(options.find((option) => option.value === "子午計畫")?.itemCount).toBe(2);
+    expect(options.find((option) => option.value === "SquareLive")?.itemCount).toBe(1);
+    expect(options.find((option) => option.value === "空團體")?.itemCount).toBe(0);
+    expect(options.slice(1).map((option) => option.name)).toEqual(
+      options.slice(1).map((option) => option.name).sort((left, right) => left.localeCompare(right, "zh-TW")),
+    );
   });
 });
 
