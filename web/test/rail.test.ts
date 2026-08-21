@@ -185,17 +185,16 @@ describe("buildRail — forward mode", () => {
     expect(rows.flatMap((row) => (row.type === "day" ? [row.dayKey] : []))).toEqual(["2026-08-22"]);
   });
 
-  it("collapses a run of empty days into one gap row", () => {
+  it("says nothing about empty days — the day dividers already carry the dates", () => {
     const rows = buildRail([tomorrow, nextWeek], NOW, "forward");
-    const gap = rows.find((row) => row.type === "gap");
-
-    expect(gap).toMatchObject({ from: "2026-08-24", to: "2026-08-27", days: 4 });
-  });
-
-  it("emits no gap row between adjacent days", () => {
-    const rows = buildRail([liveNow, tomorrow], NOW, "forward");
 
     expect(types(rows)).not.toContain("gap");
+    // The jump from 8/23 to 8/28 stays legible because both dividers are dated.
+    expect(rows.flatMap((row) => (row.type === "day" ? [row.dayKey] : []))).toEqual([
+      "2026-08-22",
+      "2026-08-23",
+      "2026-08-28",
+    ]);
   });
 
   it("still shows today and the now marker when nothing is scheduled", () => {

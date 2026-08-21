@@ -55,18 +55,6 @@ export function shiftDayKey(dayKey: string, days: number): string {
   return `${shifted.getUTCFullYear()}-${pad(shifted.getUTCMonth() + 1)}-${pad(shifted.getUTCDate())}`;
 }
 
-/** Whole days from `from` to `to`, both `YYYY-MM-DD` Taipei keys. */
-export function daysBetween(from: string, to: string): number {
-  const parse = (key: string) => {
-    const [y, m, d] = key.split("-").map(Number);
-    return y && m && d ? Date.UTC(y, m - 1, d) : NaN;
-  };
-  const a = parse(from);
-  const b = parse(to);
-  if (Number.isNaN(a) || Number.isNaN(b)) return 0;
-  return Math.round((b - a) / DAY);
-}
-
 /** Day-divider text: relative for today/tomorrow, otherwise the date with the weekday beneath. */
 export function formatDayHeading(dayKey: string, nowMs: number): { title: string; date: string } {
   const [y, m, d] = dayKey.split("-").map(Number);

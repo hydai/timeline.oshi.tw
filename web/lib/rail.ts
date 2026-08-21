@@ -1,4 +1,4 @@
-import { daysBetween, formatClock, formatDayHeading, shiftDayKey, taipeiDayKey } from "./time";
+import { formatClock, formatDayHeading, taipeiDayKey } from "./time";
 import { timelineItemKey } from "./timeline";
 import type { TimelineItem } from "./types";
 
@@ -12,7 +12,6 @@ export type RailRow =
   | { type: "day"; key: string; dayKey: string; title: string; date: string; count: number; isToday: boolean }
   | { type: "fold"; key: string; scope: "today" | "earlier"; clock: string; count: number; items: TimelineItem[] }
   | { type: "now"; key: string; clock: string; liveCount: number }
-  | { type: "gap"; key: string; from: string; to: string; days: number }
   | { type: "item"; key: string; clock: string; item: TimelineItem }
   | { type: "tail"; key: string };
 
@@ -133,14 +132,11 @@ function buildForward(dated: Dated[], nowMs: number, todayKey: string): RailRow[
   }
   let previousDay: string | null = null;
 
+  // Empty days get no row of their own: every divider is dated, so a jump from 8/23
+  // to 8/28 already reads as a jump. Announcing the silence was a third of the rows
+  // in the default view, and degenerate at the tail — placeholder streams parked in
+  // 2027 produced "264 天沒有安排".
   for (const dayKey of dayKeys) {
-    if (previousDay && daysBetween(previousDay, dayKey) > 1) {
-      const from = shiftDayKey(previousDay, 1);
-      const to = shiftDayKey(dayKey, -1);
-      rows.push({ type: "gap", key: `gap:${from}`, from, to, days: daysBetween(from, to) + 1 });
-    }
-    previousDay = dayKey;
-
     const entries = ahead.filter((entry) => entry.dayKey === dayKey);
     const isToday = dayKey === todayKey;
     // Streams that already ended today are history the moment you load the page —

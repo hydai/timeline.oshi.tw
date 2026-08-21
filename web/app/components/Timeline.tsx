@@ -122,33 +122,6 @@ function FoldRow({ row, onOpen }: { row: Extract<RailRow, { type: "fold" }>; onO
   );
 }
 
-function GapRow({ row }: { row: Extract<RailRow, { type: "gap" }> }) {
-  const short = (dayKey: string) => dayKey.split("-").slice(1).map(Number).join("/");
-  return (
-    <Row
-      node={
-        <>
-          <span className={LINE} />
-          {[2, 13, 24].map((top) => (
-            <span
-              key={top}
-              className="absolute left-[7px] h-1.5 w-1.5 rounded-full bg-[var(--rail)] sm:left-[9px]"
-              style={{ top }}
-            />
-          ))}
-        </>
-      }
-    >
-      <div className="flex items-center gap-2.5 rounded-xl border border-dashed border-[var(--border-default)] px-3 py-2 sm:px-3.5">
-        <span className="text-[11.5px] font-bold tabular-nums text-text-secondary sm:text-[12.5px]">
-          {short(row.from)} – {short(row.to)}
-        </span>
-        <span className="text-[11.5px] text-text-secondary sm:text-[12.5px]">{row.days} 天沒有安排</span>
-      </div>
-    </Row>
-  );
-}
-
 function ItemRow({ row, nowMs }: { row: Extract<RailRow, { type: "item" }>; nowMs: number }) {
   const { item } = row;
   const accent =
@@ -204,8 +177,6 @@ export default function Timeline({ items, nowMs, mode, onShowFinished }: {
             return <NowRow key={row.key} row={row} />;
           case "fold":
             return <FoldRow key={row.key} row={row} onOpen={onShowFinished} />;
-          case "gap":
-            return <GapRow key={row.key} row={row} />;
           case "item":
             return <ItemRow key={row.key} row={row} nowMs={nowMs} />;
           case "tail":

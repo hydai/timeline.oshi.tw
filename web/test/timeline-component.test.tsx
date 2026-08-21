@@ -111,11 +111,11 @@ describe("Timeline", () => {
     expect(onShowFinished).toHaveBeenCalledTimes(1);
   });
 
-  it("collapses a run of empty days into one gap row", () => {
+  it("renders no filler row for days with nothing scheduled", () => {
     render(<Timeline items={[laterToday, nextWeek]} nowMs={NOW} mode="forward" onShowFinished={noop} />);
 
-    expect(screen.getByText("8/23 – 8/27")).toBeInTheDocument();
-    expect(screen.getByText("5 天沒有安排")).toBeInTheDocument();
+    expect(screen.queryByText(/沒有安排/)).not.toBeInTheDocument();
+    expect(screen.getByText("8/28")).toBeInTheDocument();
   });
 
   it("shows the empty state when nothing survives the filters", () => {
