@@ -76,12 +76,12 @@ export default function TimelineTypeFilter({
   return (
     <section
       aria-labelledby="timeline-type-filter-heading"
-      className="glass rounded-2xl p-2 shadow-sm"
+      className="w-full min-w-0 lg:w-auto"
     >
       <h2 id="timeline-type-filter-heading" className="sr-only">
         依內容類型篩選
       </h2>
-      <div className="scrollbar-none flex snap-x gap-2 overflow-x-auto">
+      <div className="scrollbar-none flex snap-x gap-1 overflow-x-auto">
         {FILTER_OPTIONS.map((option) => {
           const active = selected === option.kind;
           const Icon = option.icon;
@@ -95,16 +95,16 @@ export default function TimelineTypeFilter({
               title={option.ariaLabel}
               onClick={() => onSelect(option.kind)}
               className={[
-                "flex min-w-[106px] flex-1 snap-start items-center justify-center gap-2 rounded-xl border px-3 py-2.5 text-xs font-bold whitespace-nowrap",
-                "transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-pink focus-visible:ring-offset-2",
+                "flex h-11 flex-none snap-start items-center justify-center gap-1.5 rounded-2xl border px-3 text-[13px] font-bold whitespace-nowrap",
+                "transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-pink",
                 active
                   ? option.activeClass
                   : "border-transparent bg-transparent text-text-secondary hover:bg-[var(--bg-surface-muted)] hover:text-text-primary",
               ].join(" ")}
             >
-              <Icon size={16} strokeWidth={2.4} aria-hidden="true" />
+              <Icon size={15} strokeWidth={2.4} aria-hidden="true" />
               <span>{option.label}</span>
-              <span className="rounded-full bg-[var(--bg-surface-muted)] px-1.5 py-0.5 text-[10px] tabular-nums text-text-secondary">
+              <span className="rounded-full bg-[var(--bg-surface-muted)] px-1.5 py-0.5 text-[10.5px] tabular-nums text-text-secondary">
                 {countForOption(option.kind, counts)}
               </span>
             </button>

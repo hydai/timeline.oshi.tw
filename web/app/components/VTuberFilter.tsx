@@ -1,43 +1,9 @@
 "use client";
 
-import { Sparkles } from "lucide-react";
-import { useState } from "react";
+import { ChevronDown, Sparkles } from "lucide-react";
 import type { VTuberFilterOption } from "@/lib/filter";
-
-function Avatar({ src, name }: { src: string | null; name: string }) {
-  const [failed, setFailed] = useState(false);
-  const initial = Array.from(name.trim())[0]?.toLocaleUpperCase("zh-TW") ?? "V";
-
-  return (
-    <span
-      className="grid h-[46px] w-[46px] flex-none place-items-center overflow-hidden rounded-full border-2 border-[var(--border-glass)] bg-gradient-to-br from-accent-pink-light to-accent-blue-light text-base font-extrabold text-white shadow-sm"
-      aria-hidden="true"
-    >
-      {src && !failed ? (
-        <img
-          src={src}
-          alt=""
-          loading="lazy"
-          referrerPolicy="no-referrer"
-          className="h-full w-full object-cover"
-          onError={() => setFailed(true)}
-        />
-      ) : (
-        <span>{initial}</span>
-      )}
-    </span>
-  );
-}
-
-function chipClass(active: boolean): string {
-  return [
-    "flex w-[92px] min-w-[92px] snap-start flex-col items-center gap-1.5 rounded-2xl border px-1.5 py-2 max-[430px]:w-[82px] max-[430px]:min-w-[82px]",
-    "transition-transform hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-pink focus-visible:ring-offset-2",
-    active
-      ? "border-[var(--accent-pink)] bg-[var(--bg-accent-pink-muted)]"
-      : "border-transparent bg-transparent",
-  ].join(" ");
-}
+import ChannelAvatar from "./ChannelAvatar";
+import { usePopover } from "./usePopover";
 
 export default function VTuberFilter({
   options,
@@ -50,48 +16,93 @@ export default function VTuberFilter({
   totalCount: number;
   onSelect: (channelId: string | null) => void;
 }) {
+  const { open, setOpen, ref } = usePopover<HTMLDivElement>();
+  const active = options.find((option) => option.channelId === selected);
+
+  const choose = (channelId: string | null) => {
+    onSelect(channelId);
+    setOpen(false);
+  };
+
+  const cell = [
+    "flex flex-col items-center gap-1.5 rounded-xl px-1 py-1.5",
+    "transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-pink",
+  ].join(" ");
+
   return (
-    <section aria-labelledby="vtuber-filter-heading">
-      <div>
-        <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--text-filter-muted)]">快速篩選</p>
-        <h2 id="vtuber-filter-heading" className="mt-0.5 text-base font-extrabold tracking-tight text-text-primary">
-          選擇 VTuber
-        </h2>
-      </div>
-      <div className="scrollbar-none -mx-1 flex snap-x gap-2.5 overflow-x-auto px-1 pb-2 pt-3">
-        <button
-          type="button"
-          className={chipClass(selected == null)}
-          onClick={() => onSelect(null)}
-          aria-label="全部"
-          aria-pressed={selected == null}
-        >
-          <span
-            className="grid h-[46px] w-[46px] place-items-center rounded-full border-2 border-[var(--border-glass)] bg-gradient-to-br from-accent-pink to-accent-purple text-white shadow-sm"
-            aria-hidden="true"
-          >
-            <Sparkles size={19} />
-          </span>
-          <span className="w-full truncate text-[11px] font-bold text-text-primary">全部</span>
-          <small className="text-[9px] tabular-nums text-[var(--text-filter-muted)]">{totalCount}</small>
-        </button>
-        {options.map((option) => (
-          <button
-            key={option.channelId}
-            type="button"
-            className={chipClass(selected === option.channelId)}
-            onClick={() => onSelect(option.channelId)}
-            aria-label={option.name}
-            aria-pressed={selected === option.channelId}
-          >
-            <Avatar src={option.avatar} name={option.name} />
-            <span className="w-full truncate text-[11px] font-bold text-text-primary" title={option.name}>
-              {option.name}
+    <div ref={ref} className="relative flex-none">
+      <button
+        type="button"
+        aria-label="VTuber 篩選"
+        aria-expanded={open}
+        aria-haspopup="true"
+        onClick={() => setOpen(!open)}
+        className={[
+          "flex h-11 items-center gap-2 rounded-2xl py-0 pl-2 pr-3 text-[13px] font-bold",
+          "transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-pink",
+          selected
+            ? "bg-[var(--bg-accent-pink-muted)] text-[var(--accent-pink-dark)]"
+            : "bg-[var(--bg-surface-muted)] text-text-secondary hover:text-text-primary",
+        ].join(" ")}
+      >
+        <span className="flex items-center" aria-hidden>
+          {(active ? [active] : options.slice(0, 3)).map((option, index) => (
+            <span key={option.channelId} style={index > 0 ? { marginLeft: -9 } : undefined}>
+              <ChannelAvatar src={option.avatar} name={option.name} size={24} className="border-2 border-[var(--border-glass)]" />
             </span>
-            <small className="text-[9px] tabular-nums text-[var(--text-filter-muted)]">{option.itemCount}</small>
-          </button>
-        ))}
-      </div>
-    </section>
+          ))}
+        </span>
+        <span className="max-w-[88px] truncate">{active?.name ?? "VTuber"}</span>
+        <ChevronDown size={13} strokeWidth={2.4} aria-hidden />
+      </button>
+
+      {open && (
+        <div className="glass absolute left-0 top-[52px] z-50 w-[300px] rounded-2xl p-2.5 shadow-2xl sm:w-[320px]">
+          <p className="mb-2 ml-1 text-[10.5px] font-bold uppercase tracking-[0.14em] text-[var(--text-filter-muted)]">
+            此區間有動態的頻道
+          </p>
+          <div className="scrollbar-none grid max-h-[280px] grid-cols-5 gap-2 overflow-y-auto">
+            <button
+              type="button"
+              aria-label="全部"
+              aria-pressed={selected == null}
+              onClick={() => choose(null)}
+              className={`${cell} ${selected == null ? "bg-[var(--bg-accent-pink-muted)]" : "hover:bg-[var(--bg-surface-muted)]"}`}
+            >
+              <span
+                className="grid h-10 w-10 place-items-center rounded-full text-white"
+                style={{ background: "linear-gradient(135deg, var(--accent-pink), var(--accent-purple))" }}
+                aria-hidden
+              >
+                <Sparkles size={17} />
+              </span>
+              <small className="w-full truncate text-center text-[10px] font-bold text-text-secondary">全部</small>
+              <small className="text-[9px] tabular-nums text-[var(--text-filter-muted)]">{totalCount}</small>
+            </button>
+
+            {options.map((option) => {
+              const isActive = selected === option.channelId;
+              return (
+                <button
+                  key={option.channelId}
+                  type="button"
+                  aria-label={option.name}
+                  aria-pressed={isActive}
+                  title={option.name}
+                  onClick={() => choose(option.channelId)}
+                  className={`${cell} ${isActive ? "bg-[var(--bg-accent-pink-muted)]" : "hover:bg-[var(--bg-surface-muted)]"}`}
+                >
+                  <ChannelAvatar src={option.avatar} name={option.name} size={40} className="border-2 border-[var(--border-glass)]" />
+                  <small className="w-full truncate text-center text-[10px] font-bold text-text-secondary">
+                    {option.name}
+                  </small>
+                  <small className="text-[9px] tabular-nums text-[var(--text-filter-muted)]">{option.itemCount}</small>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }

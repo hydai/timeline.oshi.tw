@@ -9,7 +9,7 @@ import type { TimelineItem } from "./types";
 export type RailMode = "forward" | "history";
 
 export type RailRow =
-  | { type: "day"; key: string; dayKey: string; title: string; date: string; count: number }
+  | { type: "day"; key: string; dayKey: string; title: string; date: string; count: number; isToday: boolean }
   | { type: "fold"; key: string; clock: string; count: number; items: TimelineItem[] }
   | { type: "now"; key: string; clock: string; liveCount: number }
   | { type: "gap"; key: string; from: string; to: string; days: number }
@@ -18,7 +18,10 @@ export type RailRow =
 
 interface Dated {
   item: TimelineItem;
+  /** Epoch ms, or 0 when the channel has announced no time yet. */
   at: number;
+  /** `at`, but undated items sort to the end of the day instead of the start of 1970. */
+  sortAt: number;
   dayKey: string;
 }
 
@@ -40,28 +43,39 @@ export function railTime(item: TimelineItem): number {
 
 function toDated(item: TimelineItem): Dated {
   const at = railTime(item);
-  return { item, at, dayKey: taipeiDayKey(new Date(at).toISOString()) };
+  return {
+    item,
+    at,
+    sortAt: at || Number.MAX_SAFE_INTEGER,
+    dayKey: taipeiDayKey(new Date(at).toISOString()),
+  };
 }
 
 function itemRow(entry: Dated): RailRow {
   return {
     type: "item",
-    key: timelineItemKey(entry.item),
-    // A milestone is a dated all-day event; giving it a clock would be a lie.
-    clock: entry.item.kind === "milestone" ? "" : formatClock(new Date(entry.at).toISOString()),
+    // Scoped by kind too: the same video can surface as both live and recent.
+    key: `${entry.item.kind}:${timelineItemKey(entry.item)}`,
+    // A milestone is a dated all-day event and an unannounced stream has no time at
+    // all; inventing a clock for either would be a lie.
+    clock:
+      entry.item.kind === "milestone" || entry.at === 0
+        ? ""
+        : formatClock(new Date(entry.at).toISOString()),
     item: entry.item,
   };
 }
 
 function dayRow(dayKey: string, nowMs: number, count: number): RailRow {
   const { title, date } = formatDayHeading(dayKey, nowMs);
-  return { type: "day", key: `day:${dayKey}`, dayKey, title, date, count };
+  const isToday = dayKey === taipeiDayKey(new Date(nowMs).toISOString());
+  return { type: "day", key: `day:${dayKey}`, dayKey, title, date, count, isToday };
 }
 
 function buildHistory(dated: Dated[], nowMs: number): RailRow[] {
   if (dated.length === 0) return [];
 
-  const sorted = [...dated].sort((left, right) => right.at - left.at);
+  const sorted = [...dated].sort((left, right) => right.sortAt - left.sortAt);
   const perDay = new Map<string, number>();
   for (const entry of sorted) perDay.set(entry.dayKey, (perDay.get(entry.dayKey) ?? 0) + 1);
 
@@ -79,9 +93,17 @@ function buildHistory(dated: Dated[], nowMs: number): RailRow[] {
 }
 
 function buildForward(dated: Dated[], nowMs: number, todayKey: string): RailRow[] {
+  // A stream that began at 23:50 belongs to yesterday's calendar day but is still on
+  // air now; an overdue upcoming has not happened yet. Both stay, pinned to today —
+  // only finished streams and past milestones fall off the forward rail.
   const ahead = dated
+    .map((entry) =>
+      entry.dayKey < todayKey && (entry.item.kind === "live" || entry.item.kind === "upcoming")
+        ? { ...entry, dayKey: todayKey }
+        : entry,
+    )
     .filter((entry) => entry.dayKey >= todayKey)
-    .sort((left, right) => left.at - right.at);
+    .sort((left, right) => left.sortAt - right.sortAt);
 
   // Today always gets a divider and a now marker, even with nothing scheduled.
   const dayKeys = [...new Set([todayKey, ...ahead.map((entry) => entry.dayKey)])].sort();
@@ -131,7 +153,7 @@ function buildForward(dated: Dated[], nowMs: number, todayKey: string): RailRow[
 
     let placedNow = false;
     for (const entry of listed) {
-      if (!placedNow && entry.at > nowMs) {
+      if (!placedNow && entry.sortAt > nowMs) {
         rows.push(nowRow);
         placedNow = true;
       }

@@ -90,12 +90,61 @@ describe("buildRail — forward mode", () => {
     expect(days).toEqual(["2026-08-22", "2026-08-23"]);
   });
 
+  it("flags which day divider is today, so the rail can mark the present", () => {
+    const rows = buildRail([liveNow, tomorrow], NOW, "forward");
+    const days = rows.flatMap((row) => (row.type === "day" ? [{ key: row.dayKey, isToday: row.isToday }] : []));
+
+    expect(days).toEqual([
+      { key: "2026-08-22", isToday: true },
+      { key: "2026-08-23", isToday: false },
+    ]);
+  });
+
   it("folds streams that already finished today into a single row", () => {
     const rows = buildRail([finishedToday, liveNow], NOW, "forward");
     const fold = rows.find((row) => row.type === "fold");
 
     expect(fold).toMatchObject({ count: 1, clock: "13:00" });
     expect(rows.some((row) => row.type === "item" && row.item === finishedToday)).toBe(false);
+  });
+
+  it("keeps a live stream that started before midnight on today's rail", () => {
+    // 8/21 22:00 in Taipei — yesterday's calendar day, but still on air right now.
+    const overnight = stream("live", "overnight", { actualStart: "2026-08-21T14:00:00Z" });
+    const rows = buildRail([overnight], NOW, "forward");
+    const dayIndex = rows.findIndex((row) => row.type === "day");
+    const itemIndex = rows.findIndex((row) => row.type === "item" && row.item === overnight);
+    const nowIndex = rows.findIndex((row) => row.type === "now");
+
+    expect(rows[dayIndex]).toMatchObject({ dayKey: "2026-08-22" });
+    expect(itemIndex).toBeGreaterThan(dayIndex);
+    expect(itemIndex).toBeLessThan(nowIndex);
+  });
+
+  it("keeps an overdue upcoming stream rather than silently dropping it", () => {
+    const overdue = stream("upcoming", "overdue", { scheduledStart: "2026-08-21T14:00:00Z" });
+    const rows = buildRail([overdue], NOW, "forward");
+
+    expect(rows.some((row) => row.type === "item" && row.item === overdue)).toBe(true);
+  });
+
+  it("leaves the clock empty when a stream has no announced time", () => {
+    const undated = stream("upcoming", "undated", {});
+    const rows = buildRail([undated], NOW, "forward");
+    const item = rows.find((row) => row.type === "item");
+
+    expect(item).toMatchObject({ clock: "" });
+  });
+
+  it("sorts a stream with no announced time after everything scheduled today", () => {
+    const undated = stream("upcoming", "undated", {});
+    const rows = buildRail([undated, laterToday], NOW, "forward");
+    const undatedIndex = rows.findIndex((row) => row.type === "item" && row.item === undated);
+    const laterIndex = rows.findIndex((row) => row.type === "item" && row.item === laterToday);
+    const nowIndex = rows.findIndex((row) => row.type === "now");
+
+    expect(nowIndex).toBeLessThan(laterIndex);
+    expect(laterIndex).toBeLessThan(undatedIndex);
   });
 
   it("drops days that are already over", () => {

@@ -1,76 +1,133 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import Timeline from "@/app/components/Timeline";
-import type { TimelineItem } from "@/lib/types";
+import type { SnapshotChannel, TimelineItem } from "@/lib/types";
 
-const channel = { name: "水樹", handle: null, avatar: null, group: "G", nationality: "TW", youtube_subs: 1, twvtuber_id: "t" };
-const now = Date.parse("2026-07-21T12:00:00Z");
+const channel: SnapshotChannel = {
+  name: "水樹",
+  handle: null,
+  avatar: null,
+  group: "子午計畫",
+  nationality: "TW",
+  youtube_subs: 1,
+  twvtuber_id: "t",
+};
 
-const items: TimelineItem[] = [
-  { kind: "live", sortAt: 0, channel, stream: { videoId: "L", channelId: "c", title: "live t", thumbnail: null, url: "u" } },
-  { kind: "milestone", sortAt: 0, channel, milestone: { channelId: "c", type: "anniversary", date: "2026-07-24" } },
-];
+// 2026-08-22T12:40:00Z === 8/22 20:40 in Taipei
+const NOW = Date.parse("2026-08-22T12:40:00Z");
+
+function stream(
+  kind: "live" | "upcoming" | "recent",
+  videoId: string,
+  title: string,
+  times: { actualStart?: string; scheduledStart?: string; actualEnd?: string },
+): TimelineItem {
+  return {
+    kind,
+    sortAt: 0,
+    channel,
+    stream: { videoId, channelId: "c", title, thumbnail: null, url: "https://example.com/" + videoId, ...times },
+  } as TimelineItem;
+}
+
+const finishedToday = stream("recent", "done", "已經播完", {
+  actualStart: "2026-08-22T05:00:00Z",
+  actualEnd: "2026-08-22T06:00:00Z",
+});
+const liveNow = stream("live", "live", "正在直播", { actualStart: "2026-08-22T11:50:00Z" });
+const laterToday = stream("upcoming", "later", "晚點開台", { scheduledStart: "2026-08-22T13:00:00Z" });
+const nextWeek = stream("upcoming", "far", "下週開台", { scheduledStart: "2026-08-28T12:00:00Z" });
+
+const noop = () => {};
 
 describe("Timeline", () => {
-  it("renders a card per item", () => {
-    render(<Timeline items={items} nowMs={now} />);
-    expect(screen.getByText("live t")).toBeInTheDocument();
-    expect(screen.getByText(/週年/)).toBeInTheDocument();
+  it("renders a day divider naming the Taipei day", () => {
+    render(<Timeline items={[liveNow]} nowMs={NOW} mode="forward" onShowFinished={noop} />);
+
+    expect(screen.getByText("今天")).toBeInTheDocument();
+    expect(screen.getByText("8/22 週六")).toBeInTheDocument();
   });
-  it("shows empty state when there are no items", () => {
-    render(<Timeline items={[]} nowMs={now} />);
+
+  it("marks the present with a now row carrying the live count", () => {
+    render(<Timeline items={[liveNow, laterToday]} nowMs={NOW} mode="forward" onShowFinished={noop} />);
+
+    expect(screen.getByText("現在 20:40")).toBeInTheDocument();
+    expect(screen.getByText("1 個頻道正在直播")).toBeInTheDocument();
+  });
+
+  it("says so when nobody is streaming", () => {
+    render(<Timeline items={[laterToday]} nowMs={NOW} mode="forward" onShowFinished={noop} />);
+
+    expect(screen.getByText("目前沒有人開台")).toBeInTheDocument();
+  });
+
+  it("puts the clock beside each item", () => {
+    render(<Timeline items={[liveNow]} nowMs={NOW} mode="forward" onShowFinished={noop} />);
+
+    expect(screen.getByText("19:50")).toBeInTheDocument();
+  });
+
+  it("marks a stream with no announced time as 待定, not as an all-day event", () => {
+    const undated = stream("upcoming", "tbd", "時間未定", {});
+    render(<Timeline items={[undated]} nowMs={NOW} mode="forward" onShowFinished={noop} />);
+
+    expect(screen.getByText("待定")).toBeInTheDocument();
+    expect(screen.queryByText("全天")).not.toBeInTheDocument();
+  });
+
+  it("folds streams that already finished today out of the rail", () => {
+    render(<Timeline items={[finishedToday, liveNow]} nowMs={NOW} mode="forward" onShowFinished={noop} />);
+
+    expect(screen.queryByText("已經播完")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /今天稍早/ })).toHaveTextContent("1 場已結束");
+  });
+
+  it("asks for the finished filter when the fold row is opened", async () => {
+    const onShowFinished = vi.fn();
+    render(
+      <Timeline items={[finishedToday, liveNow]} nowMs={NOW} mode="forward" onShowFinished={onShowFinished} />,
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: /今天稍早/ }));
+
+    expect(onShowFinished).toHaveBeenCalledTimes(1);
+  });
+
+  it("collapses a run of empty days into one gap row", () => {
+    render(<Timeline items={[laterToday, nextWeek]} nowMs={NOW} mode="forward" onShowFinished={noop} />);
+
+    expect(screen.getByText("8/23 – 8/27")).toBeInTheDocument();
+    expect(screen.getByText("5 天沒有安排")).toBeInTheDocument();
+  });
+
+  it("shows the empty state when nothing survives the filters", () => {
+    render(<Timeline items={[]} nowMs={NOW} mode="forward" onShowFinished={noop} />);
+
     expect(screen.getByText(/沒有符合的直播動態/)).toBeInTheDocument();
+    expect(screen.queryByText("現在 20:40")).not.toBeInTheDocument();
   });
-  it("renders a section header per zone (live, upcoming, past)", () => {
-    const spanning: TimelineItem[] = [
-      { kind: "live", sortAt: 0, channel, stream: { videoId: "L", channelId: "c", title: "live t", thumbnail: null, url: "u" } },
-      { kind: "upcoming", sortAt: 0, channel, stream: { videoId: "U", channelId: "c", title: "up t", thumbnail: null, url: "u2" } },
-      { kind: "milestone", sortAt: 0, channel, milestone: { channelId: "c", type: "anniversary", date: "2026-07-24" } },
-    ];
-    render(<Timeline items={spanning} nowMs={now} />);
-    expect(screen.getByText("🔴 正在直播")).toBeInTheDocument();
-    expect(screen.getByText("📅 預定開台")).toBeInTheDocument();
-    expect(screen.getByText("📚 歷史與里程碑")).toBeInTheDocument();
-  });
-  it("renders exactly one section header for a zone with multiple items (not one per item)", () => {
-    const spanning: TimelineItem[] = [
-      { kind: "live", sortAt: 0, channel, stream: { videoId: "L", channelId: "c", title: "live t", thumbnail: null, url: "u" } },
-      { kind: "recent", sortAt: 0, channel, stream: { videoId: "R1", channelId: "c", title: "recent one", thumbnail: null, url: "u3" } },
-      { kind: "recent", sortAt: -1, channel, stream: { videoId: "R2", channelId: "c", title: "recent two", thumbnail: null, url: "u4" } },
-      { kind: "upcoming", sortAt: 0, channel, stream: { videoId: "U", channelId: "c", title: "up t", thumbnail: null, url: "u2" } },
-    ];
-    render(<Timeline items={spanning} nowMs={now} />);
-    // Two "recent" items share the "past" zone; the header must appear once at the
-    // zone transition, not once per item. getByText throws on 2+ matches.
-    expect(screen.getByText("📚 歷史與里程碑")).toBeInTheDocument();
-    expect(screen.getAllByText("📚 歷史與里程碑")).toHaveLength(1);
-    expect(screen.getByText("recent one")).toBeInTheDocument();
-    expect(screen.getByText("recent two")).toBeInTheDocument();
-    expect(screen.getByText("🔴 正在直播")).toBeInTheDocument();
-    expect(screen.getByText("📅 預定開台")).toBeInTheDocument();
+
+  it("drops the now row in history mode, where the rail reads backwards", () => {
+    render(<Timeline items={[finishedToday]} nowMs={NOW} mode="history" onShowFinished={noop} />);
+
+    expect(screen.getByText("已經播完")).toBeInTheDocument();
+    expect(screen.queryByText("現在 20:40")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /今天稍早/ })).not.toBeInTheDocument();
   });
 
   it("keeps React keys unique when a video appears in more than one status", () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
-    const repeatedVideo: TimelineItem[] = [
-      {
-        kind: "live",
-        sortAt: 1,
-        channel,
-        stream: { videoId: "same", channelId: "c", title: "live copy", thumbnail: null, url: "u" },
-      },
-      {
-        kind: "recent",
-        sortAt: 0,
-        channel,
-        stream: { videoId: "same", channelId: "c", title: "recent copy", thumbnail: null, url: "u" },
-      },
+    const repeated: TimelineItem[] = [
+      stream("live", "same", "live copy", { actualStart: "2026-08-22T11:50:00Z" }),
+      stream("recent", "same", "recent copy", {
+        actualStart: "2026-08-22T05:00:00Z",
+        actualEnd: "2026-08-22T06:00:00Z",
+      }),
     ];
 
     try {
-      render(<Timeline items={repeatedVideo} nowMs={now} />);
-      expect(screen.getByText("live copy")).toBeInTheDocument();
-      expect(screen.getByText("recent copy")).toBeInTheDocument();
+      render(<Timeline items={repeated} nowMs={NOW} mode="history" onShowFinished={noop} />);
       expect(consoleError.mock.calls.flat().join(" ")).not.toContain("same key");
     } finally {
       consoleError.mockRestore();

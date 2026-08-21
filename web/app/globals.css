@@ -39,6 +39,9 @@ html {
   --border-accent-pink: #FBCFE8;
   --border-accent-blue: #BFDBFE;
 
+  /* the timeline rail line */
+  --rail: #DDE3EC;
+
   --font-primary: var(--font-dm-sans), "DM Sans", sans-serif;
 }
 
@@ -74,6 +77,8 @@ html.dark {
   --border-glass: rgba(255, 255, 255, 0.08);
   --border-accent-pink: rgba(244, 114, 182, 0.25);
   --border-accent-blue: rgba(147, 197, 253, 0.25);
+
+  --rail: rgba(255, 255, 255, 0.11);
 }
 
 body {

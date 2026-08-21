@@ -3,9 +3,20 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import Home from "@/app/page";
 import type { Snapshot } from "@/lib/types";
+import { taipeiDayKey } from "@/lib/time";
 import fixture from "./fixtures/snapshot.json";
 
 afterEach(() => vi.restoreAllMocks());
+
+const HOUR = 3_600_000;
+/** ISO timestamp offset from the real clock, so fixtures always land on today's rail. */
+const at = (offsetMs: number) => new Date(Date.now() + offsetMs).toISOString();
+/**
+ * A fixed instant inside today's Taipei day (10:00). A plain "two hours ago" would
+ * slide into yesterday whenever the suite runs just after midnight, and the forward
+ * rail drops finished streams from previous days.
+ */
+const todayTaipei = () => `${taipeiDayKey(new Date().toISOString())}T02:00:00Z`;
 
 const filterFixture = {
   version: "1.0.0",
@@ -33,15 +44,14 @@ const filterFixture = {
   },
   groups: ["子午計畫"],
   live: [],
-  upcoming: [],
-  recent: [
+  upcoming: [
     {
       videoId: "video-mizuki",
       channelId: "channel-mizuki",
       title: "水樹的直播",
       thumbnail: null,
       url: "https://example.com/mizuki",
-      actualEnd: "2026-07-21T18:00:00Z",
+      scheduledStart: at(3 * HOUR),
     },
     {
       videoId: "video-gabu",
@@ -49,11 +59,15 @@ const filterFixture = {
       title: "Gabu 的直播",
       thumbnail: null,
       url: "https://example.com/gabu",
-      actualEnd: "2026-07-21T17:00:00Z",
+      scheduledStart: at(4 * HOUR),
     },
   ],
+  recent: [],
   milestones: [],
 } satisfies Snapshot;
+
+/** Three days out, so it stays on the forward rail rather than falling into history. */
+const FUTURE_MILESTONE_DATE = at(3 * 24 * HOUR).slice(0, 10);
 
 const typeFilterFixture = {
   ...filterFixture,
@@ -63,7 +77,7 @@ const typeFilterFixture = {
     title: "現在正在直播",
     thumbnail: null,
     url: "https://example.com/live",
-    actualStart: "2026-07-21T19:00:00Z",
+    actualStart: at(-HOUR),
   }],
   upcoming: [{
     videoId: "video-upcoming",
@@ -71,7 +85,7 @@ const typeFilterFixture = {
     title: "稍後預定直播",
     thumbnail: null,
     url: "https://example.com/upcoming",
-    scheduledStart: "2026-07-22T12:00:00Z",
+    scheduledStart: at(3 * HOUR),
   }],
   recent: [{
     videoId: "video-completed",
@@ -79,12 +93,13 @@ const typeFilterFixture = {
     title: "已完成的直播",
     thumbnail: null,
     url: "https://example.com/completed",
-    actualEnd: "2026-07-21T18:00:00Z",
+    actualStart: todayTaipei(),
+    actualEnd: todayTaipei(),
   }],
   milestones: [{
     channelId: "channel-gabu",
     type: "anniversary",
-    date: "2026-07-24",
+    date: FUTURE_MILESTONE_DATE,
   }],
 } satisfies Snapshot;
 
@@ -132,21 +147,22 @@ describe("Home page", () => {
     );
     render(<Home />);
 
-    await waitFor(() => expect(screen.getByRole("button", { name: "水樹" })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("button", { name: "VTuber 篩選" })).toBeInTheDocument());
     expect(screen.getByRole("link", { name: /水樹的直播/ })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Gabu 的直播/ })).toBeInTheDocument();
 
+    await userEvent.click(screen.getByRole("button", { name: "VTuber 篩選" }));
     await userEvent.click(screen.getByRole("button", { name: "水樹" }));
 
     expect(screen.getByRole("link", { name: /水樹的直播/ })).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /Gabu 的直播/ })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "水樹" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "VTuber 篩選" })).toHaveTextContent("水樹");
 
+    await userEvent.click(screen.getByRole("button", { name: "VTuber 篩選" }));
     await userEvent.click(screen.getByRole("button", { name: "全部" }));
 
     expect(screen.getByRole("link", { name: /水樹的直播/ })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Gabu 的直播/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "全部" })).toHaveAttribute("aria-pressed", "true");
   });
 
   it("filters by company, narrows VTuber choices, and clears an incompatible VTuber selection", async () => {
@@ -156,30 +172,65 @@ describe("Home page", () => {
     );
     render(<Home />);
 
-    await waitFor(() => expect(screen.getByRole("button", { name: "子午計畫" })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("button", { name: "所屬團體篩選" })).toBeInTheDocument());
+    await userEvent.click(screen.getByRole("button", { name: "所屬團體篩選" }));
     await userEvent.click(screen.getByRole("button", { name: "子午計畫" }));
 
     expect(screen.getByRole("link", { name: /水樹的直播/ })).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /Gabu 的直播/ })).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "VTuber 篩選" }));
     expect(screen.getByRole("button", { name: "水樹" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Gabu" })).not.toBeInTheDocument();
-
     await userEvent.click(screen.getByRole("button", { name: "水樹" }));
-    expect(screen.getByRole("button", { name: "水樹" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "VTuber 篩選" })).toHaveTextContent("水樹");
 
+    // Re-picking the same company must not disturb the channel selection.
+    await userEvent.click(screen.getByRole("button", { name: "所屬團體篩選" }));
     await userEvent.click(screen.getByRole("button", { name: "子午計畫" }));
-    expect(screen.getByRole("button", { name: "水樹" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "VTuber 篩選" })).toHaveTextContent("水樹");
 
+    await userEvent.click(screen.getByRole("button", { name: "所屬團體篩選" }));
     await userEvent.click(screen.getByRole("button", { name: "個人勢" }));
 
     expect(screen.queryByRole("link", { name: /水樹的直播/ })).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Gabu 的直播/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Gabu" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "全部" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "VTuber 篩選" })).toHaveTextContent("VTuber");
 
+    await userEvent.click(screen.getByRole("button", { name: "所屬團體篩選" }));
     await userEvent.click(screen.getByRole("button", { name: "全部團體" }));
     expect(screen.getByRole("link", { name: /水樹的直播/ })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Gabu 的直播/ })).toBeInTheDocument();
+  });
+
+  it("opens with today forward: live, upcoming and future milestones, finished streams folded", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify(typeFilterFixture), { status: 200 })),
+    );
+    render(<Home />);
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "正在直播" })).toBeInTheDocument());
+    expect(screen.getByText("現在正在直播")).toBeInTheDocument();
+    expect(screen.getByText("稍後預定直播")).toBeInTheDocument();
+    expect(screen.getByText(`週年 · ${FUTURE_MILESTONE_DATE}`)).toBeInTheDocument();
+    // Already over today, so it sits behind the fold rather than in the rail.
+    expect(screen.queryByText("已完成的直播")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /今天稍早/ })).toHaveTextContent("1 場已結束");
+  });
+
+  it("reveals today's finished streams when the fold row is opened", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify(typeFilterFixture), { status: 200 })),
+    );
+    render(<Home />);
+
+    await waitFor(() => expect(screen.getByRole("button", { name: /今天稍早/ })).toBeInTheDocument());
+    await userEvent.click(screen.getByRole("button", { name: /今天稍早/ }));
+
+    expect(screen.getByText("已完成的直播")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "已完成直播" })).toHaveAttribute("aria-pressed", "true");
   });
 
   it("quickly filters the river by content type and restores it with 全部類型", async () => {
@@ -190,26 +241,23 @@ describe("Home page", () => {
     render(<Home />);
 
     await waitFor(() => expect(screen.getByRole("button", { name: "正在直播" })).toBeInTheDocument());
-    expect(screen.getByText("現在正在直播")).toBeInTheDocument();
-    expect(screen.getByText("稍後預定直播")).toBeInTheDocument();
-    expect(screen.getByText("已完成的直播")).toBeInTheDocument();
-    expect(screen.getByText("週年 · 2026-07-24")).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: "正在直播" }));
     expect(screen.getByText("現在正在直播")).toBeInTheDocument();
     expect(screen.queryByText("稍後預定直播")).not.toBeInTheDocument();
-    expect(screen.queryByText("已完成的直播")).not.toBeInTheDocument();
-    expect(screen.queryByText("週年 · 2026-07-24")).not.toBeInTheDocument();
+    expect(screen.queryByText(`週年 · ${FUTURE_MILESTONE_DATE}`)).not.toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: "重要里程碑" }));
     expect(screen.queryByText("現在正在直播")).not.toBeInTheDocument();
-    expect(screen.getByText("週年 · 2026-07-24")).toBeInTheDocument();
+    expect(screen.getByText(`週年 · ${FUTURE_MILESTONE_DATE}`)).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "已完成直播" }));
+    expect(screen.getByText("已完成的直播")).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: "全部類型" }));
     expect(screen.getByText("現在正在直播")).toBeInTheDocument();
     expect(screen.getByText("稍後預定直播")).toBeInTheDocument();
-    expect(screen.getByText("已完成的直播")).toBeInTheDocument();
-    expect(screen.getByText("週年 · 2026-07-24")).toBeInTheDocument();
+    expect(screen.getByText(`週年 · ${FUTURE_MILESTONE_DATE}`)).toBeInTheDocument();
   });
 
   it("lazy-loads permanent history one month at a time after choosing completed streams", async () => {

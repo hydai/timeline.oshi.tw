@@ -13,11 +13,9 @@ import {
   type TimelineKind,
 } from "@/lib/filter";
 import type { ArchiveIndex, ArchiveMonth, Snapshot } from "@/lib/types";
+import type { RailMode } from "@/lib/rail";
 import Header from "./components/Header";
-import GroupFilter from "./components/GroupFilter";
-import SearchBar from "./components/SearchBar";
-import TimelineTypeFilter from "./components/TimelineTypeFilter";
-import VTuberFilter from "./components/VTuberFilter";
+import CommandBar from "./components/CommandBar";
 import Timeline from "./components/Timeline";
 
 const SNAPSHOT_URL = process.env.NEXT_PUBLIC_SNAPSHOT_URL ?? "https://data.oshi.tw/streams/v1/snapshot.json";
@@ -134,6 +132,8 @@ export default function Home() {
     () => filterTimeline(timeline, query, selectedChannelId, selectedKind, selectedGroup),
     [timeline, query, selectedChannelId, selectedKind, selectedGroup],
   );
+  // Finished streams and milestones read newest-first; everything else reads forward from now.
+  const railMode: RailMode = historyKind ? "history" : "forward";
   const historyTotal = useMemo(() => {
     if (!archiveIndex || !historyKind) return 0;
     return archiveIndex.months.reduce(
@@ -150,7 +150,7 @@ export default function Home() {
   }, [archiveMonths, historyKind]);
 
   return (
-    <div className="relative mx-auto min-h-screen max-w-5xl px-4 py-6">
+    <div className="relative mx-auto min-h-screen max-w-[1120px] px-4 py-6">
       <div className="pointer-events-none absolute -top-20 -right-20 h-96 w-96 rounded-full bg-pink-300/20 blur-3xl" aria-hidden />
       <div className="pointer-events-none absolute top-40 -left-20 h-72 w-72 rounded-full bg-blue-300/20 blur-3xl" aria-hidden />
       <div className="relative z-10">
@@ -163,36 +163,32 @@ export default function Home() {
         ) : !snap ? (
           <div role="status" aria-live="polite" className="glass mx-auto max-w-2xl rounded-2xl p-6 text-center text-text-secondary">載入中…</div>
         ) : (
-          <div className="lg:grid lg:grid-cols-[208px_minmax(0,1fr)] lg:items-start lg:gap-6">
-            <div className="mb-4 lg:mb-0">
-              <GroupFilter
-                options={groups}
-                selected={selectedGroup}
-                totalCount={timeline.length}
-                onSelect={(group) => {
-                  if (group !== selectedGroup) setSelectedChannelId(null);
-                  setSelectedGroup(group);
-                }}
+          <div className="min-w-0">
+            <CommandBar
+              query={query}
+              onQueryChange={setQuery}
+              groups={groups}
+              selectedGroup={selectedGroup}
+              onGroupSelect={(group) => {
+                if (group !== selectedGroup) setSelectedChannelId(null);
+                setSelectedGroup(group);
+              }}
+              totalCount={timeline.length}
+              vtubers={vtubers}
+              selectedChannelId={selectedChannelId}
+              onChannelSelect={setSelectedChannelId}
+              groupedCount={groupedTimeline.length}
+              kindCounts={kindCounts}
+              selectedKind={selectedKind}
+              onKindSelect={setSelectedKind}
+            />
+            <div className="mt-5">
+              <Timeline
+                items={items}
+                nowMs={nowMs}
+                mode={railMode}
+                onShowFinished={() => setSelectedKind("recent")}
               />
-            </div>
-            <div className="min-w-0">
-              <div className="mb-3 flex flex-col gap-3">
-                <SearchBar value={query} onChange={setQuery} />
-                <VTuberFilter
-                  options={vtubers}
-                  selected={selectedChannelId}
-                  totalCount={groupedTimeline.length}
-                  onSelect={setSelectedChannelId}
-                />
-              </div>
-              <div className="sticky top-2 z-20 mb-4">
-                <TimelineTypeFilter
-                  counts={kindCounts}
-                  selected={selectedKind}
-                  onSelect={setSelectedKind}
-                />
-              </div>
-              <Timeline items={items} nowMs={nowMs} />
               {historyKind && (
                 <div className="mt-5 flex flex-col items-center gap-2 text-center text-xs text-text-secondary" aria-live="polite">
                   {!archiveIndex && !archiveError && <span>正在讀取永久封存…</span>}
