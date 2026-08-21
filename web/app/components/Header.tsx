@@ -1,11 +1,34 @@
+"use client";
+import { useEffect, useState } from "react";
 import { Clock } from "lucide-react";
 import ThemeToggle from "./ThemeToggle";
 import { formatClock, formatDayHeading, formatRelativeTime, taipeiDayKey } from "@/lib/time";
 
-export default function Header({ updatedAt, nowMs }: { updatedAt: string; nowMs: number }) {
-  const iso = new Date(nowMs).toISOString();
-  const today = formatDayHeading(taipeiDayKey(iso), nowMs);
+/**
+ * The current time, rendered only after mount.
+ *
+ * The site is a static export, so anything derived from Date.now() would otherwise be
+ * frozen into the prerendered HTML and mismatch on hydration. React reacts to a text
+ * mismatch by discarding the server markup and re-rendering the root — and the root
+ * layout owns <html>, so that rewrites its className and wipes the `dark` class the
+ * no-flash script set, resetting the theme to light on every reload.
+ */
+function NowChip({ nowMs }: { nowMs: number }) {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
 
+  if (!mounted) return <span className="hidden h-8 sm:inline-flex" aria-hidden />;
+
+  const iso = new Date(nowMs).toISOString();
+  return (
+    <span className="glass hidden items-center gap-2 rounded-pill px-3.5 py-1.5 text-[13px] font-semibold tabular-nums text-text-secondary sm:inline-flex">
+      <Clock size={15} style={{ color: "var(--accent-pink)" }} aria-hidden />
+      {formatDayHeading(taipeiDayKey(iso), nowMs).date} {formatClock(iso)}
+    </span>
+  );
+}
+
+export default function Header({ updatedAt, nowMs }: { updatedAt: string; nowMs: number }) {
   return (
     <header className="mb-4 flex items-end justify-between gap-4">
       <div>
@@ -19,10 +42,7 @@ export default function Header({ updatedAt, nowMs }: { updatedAt: string; nowMs:
       </div>
       <div className="flex flex-none items-center gap-2.5">
         {/* The rail is read against the current time, so the page states it outright. */}
-        <span className="glass hidden items-center gap-2 rounded-pill px-3.5 py-1.5 text-[13px] font-semibold tabular-nums text-text-secondary sm:inline-flex">
-          <Clock size={15} style={{ color: "var(--accent-pink)" }} aria-hidden />
-          {today.date} {formatClock(iso)}
-        </span>
+        <NowChip nowMs={nowMs} />
         <ThemeToggle />
       </div>
     </header>
