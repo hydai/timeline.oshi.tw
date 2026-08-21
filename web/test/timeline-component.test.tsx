@@ -83,6 +83,23 @@ describe("Timeline", () => {
     expect(screen.getByRole("button", { name: /今天稍早/ })).toHaveTextContent("1 場已結束");
   });
 
+  it("offers a way into the finished filter when every stream is from an earlier day", async () => {
+    const onShowFinished = vi.fn();
+    const older = stream("recent", "older", "上週的直播", {
+      actualStart: "2026-08-20T05:00:00Z",
+      actualEnd: "2026-08-20T06:00:00Z",
+    });
+    render(<Timeline items={[older]} nowMs={NOW} mode="forward" onShowFinished={onShowFinished} />);
+
+    // Without this the rail would look empty while the 已完成 badge still counted them.
+    expect(screen.queryByText(/沒有符合的直播動態/)).not.toBeInTheDocument();
+    const fold = screen.getByRole("button", { name: /更早/ });
+    expect(fold).toHaveTextContent("1 場已結束");
+
+    await userEvent.click(fold);
+    expect(onShowFinished).toHaveBeenCalledTimes(1);
+  });
+
   it("asks for the finished filter when the fold row is opened", async () => {
     const onShowFinished = vi.fn();
     render(

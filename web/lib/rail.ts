@@ -10,7 +10,7 @@ export type RailMode = "forward" | "history";
 
 export type RailRow =
   | { type: "day"; key: string; dayKey: string; title: string; date: string; count: number; isToday: boolean }
-  | { type: "fold"; key: string; clock: string; count: number; items: TimelineItem[] }
+  | { type: "fold"; key: string; scope: "today" | "earlier"; clock: string; count: number; items: TimelineItem[] }
   | { type: "now"; key: string; clock: string; liveCount: number }
   | { type: "gap"; key: string; from: string; to: string; days: number }
   | { type: "item"; key: string; clock: string; item: TimelineItem }
@@ -96,13 +96,18 @@ function buildForward(dated: Dated[], nowMs: number, todayKey: string): RailRow[
   // A stream that began at 23:50 belongs to yesterday's calendar day but is still on
   // air now; an overdue upcoming has not happened yet. Both stay, pinned to today —
   // only finished streams and past milestones fall off the forward rail.
-  const ahead = dated
-    .map((entry) =>
-      entry.dayKey < todayKey && (entry.item.kind === "live" || entry.item.kind === "upcoming")
-        ? { ...entry, dayKey: todayKey }
-        : entry,
-    )
+  const pinned = dated.map((entry) =>
+    entry.dayKey < todayKey && (entry.item.kind === "live" || entry.item.kind === "upcoming")
+      ? { ...entry, dayKey: todayKey }
+      : entry,
+  );
+  const ahead = pinned
     .filter((entry) => entry.dayKey >= todayKey)
+    .sort((left, right) => left.sortAt - right.sortAt);
+  // Streams the forward rail leaves behind. Without a row standing in for them the
+  // view looks empty while the 已完成 badge still counts them.
+  const earlier = pinned
+    .filter((entry) => entry.dayKey < todayKey && entry.item.kind === "recent")
     .sort((left, right) => left.sortAt - right.sortAt);
 
   // Today always gets a divider and a now marker, even with nothing scheduled.
@@ -116,6 +121,16 @@ function buildForward(dated: Dated[], nowMs: number, todayKey: string): RailRow[
   };
 
   const rows: RailRow[] = [];
+  if (earlier.length > 0) {
+    rows.push({
+      type: "fold",
+      key: "fold:earlier",
+      scope: "earlier",
+      clock: "",
+      count: earlier.length,
+      items: earlier.map((entry) => entry.item),
+    });
+  }
   let previousDay: string | null = null;
 
   for (const dayKey of dayKeys) {
@@ -140,6 +155,7 @@ function buildForward(dated: Dated[], nowMs: number, todayKey: string): RailRow[
       rows.push({
         type: "fold",
         key: `fold:${dayKey}`,
+        scope: "today",
         clock: formatClock(new Date(earliestFolded.at).toISOString()),
         count: folded.length,
         items: folded.map((entry) => entry.item),

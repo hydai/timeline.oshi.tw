@@ -147,6 +147,37 @@ describe("buildRail — forward mode", () => {
     expect(laterIndex).toBeLessThan(undatedIndex);
   });
 
+  it("folds finished streams from earlier days into a row above today", () => {
+    const rows = buildRail([oldStream, liveNow], NOW, "forward");
+    const foldIndex = rows.findIndex((row) => row.type === "fold");
+    const dayIndex = rows.findIndex((row) => row.type === "day");
+
+    expect(rows[foldIndex]).toMatchObject({ scope: "earlier", count: 1 });
+    // Earlier days precede today, so the row that stands in for them does too.
+    expect(foldIndex).toBeLessThan(dayIndex);
+  });
+
+  it("keeps the earlier fold separate from today's fold", () => {
+    const rows = buildRail([oldStream, finishedToday, liveNow], NOW, "forward");
+    const folds = rows.flatMap((row) => (row.type === "fold" ? [row.scope] : []));
+
+    expect(folds).toEqual(["earlier", "today"]);
+  });
+
+  it("emits no earlier fold when nothing older is hidden", () => {
+    const rows = buildRail([finishedToday, liveNow], NOW, "forward");
+    const folds = rows.flatMap((row) => (row.type === "fold" ? [row.scope] : []));
+
+    expect(folds).toEqual(["today"]);
+  });
+
+  it("still builds a rail when every matching stream is already over", () => {
+    // A company whose whole schedule is in the past must not render as empty.
+    const rows = buildRail([oldStream], NOW, "forward");
+
+    expect(rows.find((row) => row.type === "fold")).toMatchObject({ scope: "earlier", count: 1 });
+  });
+
   it("drops days that are already over", () => {
     const rows = buildRail([oldStream, liveNow], NOW, "forward");
 

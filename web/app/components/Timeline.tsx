@@ -85,6 +85,7 @@ function NowRow({ row }: { row: Extract<RailRow, { type: "now" }> }) {
 }
 
 function FoldRow({ row, onOpen }: { row: Extract<RailRow, { type: "fold" }>; onOpen: () => void }) {
+  const earlier = row.scope === "earlier";
   return (
     <Row
       time={<span className="text-text-secondary">{row.clock}</span>}
@@ -101,7 +102,7 @@ function FoldRow({ row, onOpen }: { row: Extract<RailRow, { type: "fold" }>; onO
         className="flex w-full items-center gap-2 rounded-xl border border-dashed border-[var(--border-default)] bg-[var(--bg-surface-muted)] px-3 py-2.5 text-left transition-colors hover:bg-[var(--bg-surface-glass)] sm:gap-3 sm:px-3.5"
       >
         <ChevronRight size={15} strokeWidth={2.4} className="flex-none text-text-secondary" aria-hidden />
-        <span className="text-xs font-bold text-text-secondary sm:text-[13px]">今天稍早</span>
+        <span className="text-xs font-bold text-text-secondary sm:text-[13px]">{earlier ? "更早" : "今天稍早"}</span>
         <span className="text-[11.5px] tabular-nums text-text-secondary sm:text-[12.5px]">{row.count} 場已結束</span>
         <span className="flex-1" />
         <span className="flex items-center" aria-hidden>
