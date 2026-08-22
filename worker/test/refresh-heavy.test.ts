@@ -4,7 +4,18 @@ import { listMilestonesBetween, listStreamsByStatus, upsertChannelId, upsertStre
 import { heavyRefresh, type RefreshDeps } from "../src/refresh";
 import { readSnapshot } from "../src/r2";
 import type { StreamRecord } from "../src/types";
+import { PRISM_MANIFEST_KEY, prismSnapshotKey } from "../src/prism";
 import { vtubers } from "./fixtures/twvtuber";
+
+const PRISM_SHA = "b".repeat(64);
+
+async function publishPrismGroups(groups: Record<string, string>): Promise<void> {
+  await env.DATA_PUBLIC.put(PRISM_MANIFEST_KEY, JSON.stringify({ schemaVersion: "1.0.0", sha256: PRISM_SHA }));
+  await env.DATA_PUBLIC.put(prismSnapshotKey(PRISM_SHA), JSON.stringify({
+    schemaVersion: "1.0.0",
+    streamers: Object.entries(groups).map(([youtubeChannelId, group]) => ({ youtubeChannelId, group })),
+  }));
+}
 
 const liveRec: StreamRecord = {
   videoId: "v1", channelId: "UCaaa", status: "live", title: "直播", thumbnailUrl: "https://t",
@@ -28,6 +39,7 @@ beforeEach(async () => {
   await env.DB.exec("DELETE FROM channels");
   await env.DATA_PUBLIC.delete("streams/v1/snapshot.json");
   await env.DATA_PUBLIC.delete("streams/v1/archive/index.json");
+  await env.DATA_PUBLIC.delete([PRISM_MANIFEST_KEY, prismSnapshotKey(PRISM_SHA)]);
   await upsertChannelId(env.DB, "UCaaa", "2026-07-01T00:00:00Z");
 });
 
@@ -50,6 +62,30 @@ describe("heavyRefresh", () => {
       .prepare("SELECT availability FROM streams WHERE video_id = 'v1'")
       .first<{ availability: string }>();
     expect(retained).toEqual({ availability: "unavailable" });
+  });
+
+  it("prefers prism's company name over twvtuber's brand name", async () => {
+    // twvtuber files this channel under 子午計畫; prism is the authority for company names.
+    await publishPrismGroups({ UCaaa: "春魚創意" });
+
+    const snap = await heavyRefresh(env, deps());
+
+    expect(snap.channels["UCaaa"]!.group).toBe("春魚創意");
+    expect(snap.groups).toContain("春魚創意");
+  });
+
+  it("keeps the twvtuber company when prism has no affiliation on file", async () => {
+    await publishPrismGroups({ UCaaa: "個人勢" });
+
+    const snap = await heavyRefresh(env, deps());
+
+    expect(snap.channels["UCaaa"]!.group).toBe("子午計畫");
+  });
+
+  it("publishes unchanged when prism data is unavailable", async () => {
+    const snap = await heavyRefresh(env, deps());
+
+    expect(snap.channels["UCaaa"]!.group).toBe("子午計畫");
   });
 
   it("tolerates roster failure and still publishes", async () => {

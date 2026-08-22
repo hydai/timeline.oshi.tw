@@ -5,6 +5,7 @@ import {
   listMilestonesBetween, listStreamsByStatus, markStreamsUnavailableBatch, setChannelMetasBatch,
   upsertMilestonesBatch, upsertStreamsBatch,
 } from "./db";
+import { applyPrismGroups, readPrismGroups } from "./prism";
 import { derivePermanentMilestones, indexRosterByYoutubeId } from "./twvtuber";
 import { buildSnapshot } from "./snapshot";
 import { readSnapshot, writeSnapshot } from "./r2";
@@ -110,6 +111,14 @@ export async function heavyRefresh(env: Env, deps: RefreshDeps): Promise<Snapsho
     );
   } catch (e) {
     console.warn(`roster failed: ${(e as Error).message}`);
+  }
+
+  // Prism is the authority on company names — twvtuber files 春魚創意 under the brand
+  // "SquareLive". It only ever adds or renames; a prism outage leaves the roster as-is.
+  try {
+    roster = applyPrismGroups(roster, await readPrismGroups(env.DATA_PUBLIC));
+  } catch (e) {
+    console.warn(`prism groups failed: ${(e as Error).message}`);
   }
 
   // 5. Publish a lightweight current snapshot plus the permanent monthly archive.
