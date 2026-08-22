@@ -36,9 +36,13 @@ export default function Header({ updatedAt, nowMs }: { updatedAt: string; nowMs:
             style={{ backgroundImage: "linear-gradient(135deg, var(--accent-pink), var(--accent-blue))", WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent" }}>
           timeline.oshi.tw
         </h1>
-        <p className="mt-0.5 text-xs text-text-secondary">
-          台 V 直播時間軸{updatedAt && ` · 資料更新於 ${formatRelativeTime(updatedAt, nowMs)}`}
-        </p>
+        {/* The wordmark says what the site is; the only thing worth adding is how
+            fresh the data is, and only once there is data to describe. */}
+        {updatedAt && (
+          <p className="mt-0.5 text-xs text-text-secondary">
+            資料更新於 {formatRelativeTime(updatedAt, nowMs)}
+          </p>
+        )}
       </div>
       <div className="flex flex-none items-center gap-2.5">
         {/* The rail is read against the current time, so the page states it outright. */}

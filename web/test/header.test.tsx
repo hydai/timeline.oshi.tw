@@ -24,6 +24,21 @@ describe("Header", () => {
     expect(screen.getByText(/20:40/)).toBeInTheDocument();
   });
 
+  it("leaves only the freshness line under the wordmark", () => {
+    render(<Header updatedAt="2026-08-22T12:26:00Z" nowMs={NOW} />);
+
+    // The wordmark already says what the site is; restating it as a tagline is noise.
+    expect(screen.queryByText(/台 V 直播時間軸/)).not.toBeInTheDocument();
+    expect(screen.getByText(/資料更新於/)).toBeInTheDocument();
+  });
+
+  it("renders no freshness line at all before the snapshot arrives", () => {
+    render(<Header updatedAt="" nowMs={NOW} />);
+
+    // Otherwise an empty paragraph holds space and the header jumps when data lands.
+    expect(screen.queryByText(/資料更新於/)).not.toBeInTheDocument();
+  });
+
   it("still names the site on the server, so the shell is not blank", () => {
     const html = renderToStaticMarkup(<Header updatedAt="" nowMs={NOW} />);
 
