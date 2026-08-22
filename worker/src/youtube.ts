@@ -49,6 +49,53 @@ export function normalizeVideo(item: YtVideoItem): StreamRecord {
   };
 }
 
+interface PlaylistItemsResponse {
+  items?: { contentDetails?: { videoId?: string } }[];
+  nextPageToken?: string;
+}
+
+/**
+ * Every video a channel has uploaded, newest first.
+ *
+ * The RSS feed used for routine discovery only carries the latest ~15, which is why
+ * stream history starts at the day we began scanning. The uploads playlist pages
+ * through everything at 1 quota unit per 50 — search.list would be 100 a call.
+ *
+ * `maxPages` is a hard stop so a single channel with a huge back catalogue cannot
+ * consume the day's quota.
+ */
+export async function fetchUploadIds(
+  apiKey: string,
+  referer: string,
+  playlistId: string,
+  maxPages = 40,
+): Promise<string[]> {
+  const ids: string[] = [];
+  let pageToken: string | undefined;
+
+  for (let page = 0; page < maxPages; page += 1) {
+    const url = new URL(`${YT_API}/playlistItems`);
+    url.searchParams.set("part", "contentDetails");
+    url.searchParams.set("playlistId", playlistId);
+    url.searchParams.set("maxResults", "50");
+    url.searchParams.set("key", apiKey);
+    if (pageToken) url.searchParams.set("pageToken", pageToken);
+
+    const res = await fetch(url.toString(), { headers: { Referer: referer } });
+    if (!res.ok) throw new Error(`playlistItems.list failed (${res.status}): ${await res.text()}`);
+
+    const data = (await res.json()) as PlaylistItemsResponse;
+    for (const item of data.items ?? []) {
+      const videoId = item.contentDetails?.videoId;
+      if (videoId) ids.push(videoId);
+    }
+    if (!data.nextPageToken) break;
+    pageToken = data.nextPageToken;
+  }
+
+  return ids;
+}
+
 /** Batch fetch video status. 1 quota unit per 50 ids. Never uses search.list. */
 export async function fetchVideoDetails(apiKey: string, referer: string, ids: string[]): Promise<StreamRecord[]> {
   const out: StreamRecord[] = [];

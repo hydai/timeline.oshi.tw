@@ -16,6 +16,27 @@ describe("manual trigger auth", () => {
     expect(res.status).toBe(403);
   });
 
+  it("rejects a backfill without a token too", async () => {
+    const res = await worker.fetch(
+      new Request("https://x/refresh?mode=backfill&channel=UCaaa", { method: "POST" }), env);
+    expect(res.status).toBe(403);
+  });
+
+  it("refuses a backfill that names no channel", async () => {
+    const res = await worker.fetch(
+      new Request("https://x/refresh?mode=backfill", { method: "POST", headers: { "X-Trigger-Token": "secret" } }), env);
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ ok: false });
+  });
+
+  it("refuses a channel id that is not a channel id", async () => {
+    const res = await worker.fetch(
+      new Request("https://x/refresh?mode=backfill&channel=not-a-channel", {
+        method: "POST", headers: { "X-Trigger-Token": "secret" },
+      }), env);
+    expect(res.status).toBe(400);
+  });
+
   it("returns 404 for other paths", async () => {
     const res = await worker.fetch(new Request("https://x/other"), env);
     expect(res.status).toBe(404);
