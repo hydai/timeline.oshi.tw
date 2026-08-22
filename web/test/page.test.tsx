@@ -260,23 +260,25 @@ describe("Home page", () => {
     expect(screen.getByText(`週年 · ${FUTURE_MILESTONE_DATE}`)).toBeInTheDocument();
   });
 
-  it("lazy-loads permanent history one month at a time after choosing completed streams", async () => {
-    const archiveMonth = (month: string, videoId: string, title: string, actualEnd: string) => ({
-      version: "1.0.0",
-      generated_at: "2026-07-21T19:00:00Z",
-      month,
-      channels: typeFilterFixture.channels,
-      streams: [{
-        videoId,
-        channelId: "channel-mizuki",
-        title,
-        thumbnail: null,
-        url: `https://example.com/${videoId}`,
-        actualEnd,
-      }],
-      milestones: [],
-    });
-    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+  const archiveMonth = (month: string, videoId: string, title: string, actualEnd: string) => ({
+    version: "1.0.0",
+    generated_at: "2026-07-21T19:00:00Z",
+    month,
+    channels: typeFilterFixture.channels,
+    streams: [{
+      videoId,
+      channelId: "channel-mizuki",
+      title,
+      thumbnail: null,
+      url: `https://example.com/${videoId}`,
+      actualEnd,
+    }],
+    milestones: [],
+  });
+
+  /** Two archived months, so "one month at a time" is observable. */
+  function stubArchive() {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = typeof input === "string" ? input : input.toString();
       if (url.endsWith("/archive/index.json")) {
         return new Response(JSON.stringify({
@@ -299,19 +301,108 @@ describe("Home page", () => {
         )), { status: 200 });
       }
       return new Response(JSON.stringify(typeFilterFixture), { status: 200 });
-    }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    return fetchMock;
+  }
+
+  const monthRequests = (fetchMock: ReturnType<typeof stubArchive>, month: string) =>
+    fetchMock.mock.calls.filter(([input]) => String(input).endsWith(`/archive/${month}.json`)).length;
+
+  it("opens completed history at the newest archived month, and loads only that month", async () => {
+    const fetchMock = stubArchive();
     render(<Home />);
 
     await waitFor(() => expect(screen.getByRole("button", { name: "已完成直播" })).toHaveTextContent("2"));
     await userEvent.click(screen.getByRole("button", { name: "已完成直播" }));
 
     await waitFor(() => expect(screen.getByText("七月封存直播")).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "2026 年 7 月" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.queryByText("六月封存直播")).not.toBeInTheDocument();
-    expect(screen.getByText(/已載入 1 \/ 2 筆歷史封存/)).toBeInTheDocument();
+    expect(monthRequests(fetchMock, "2026-06")).toBe(0);
+  });
 
-    await userEvent.click(screen.getByRole("button", { name: "載入更早紀錄" }));
+  it("shows the chosen month alone, so the rail never grows past one month", async () => {
+    stubArchive();
+    render(<Home />);
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "已完成直播" })).toBeInTheDocument());
+    await userEvent.click(screen.getByRole("button", { name: "已完成直播" }));
+    await waitFor(() => expect(screen.getByText("七月封存直播")).toBeInTheDocument());
+    // This month's finished stream comes from the snapshot, not the archive — a month
+    // view that quietly kept it would not be one month.
+    expect(screen.queryByText("已完成的直播")).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "2026 年 6 月" }));
 
     await waitFor(() => expect(screen.getByText("六月封存直播")).toBeInTheDocument());
-    expect(screen.getByText("已載入全部永久紀錄。")).toBeInTheDocument();
+    expect(screen.queryByText("七月封存直播")).not.toBeInTheDocument();
+  });
+
+  it("carries on into the previous month from the end of the rail", async () => {
+    stubArchive();
+    render(<Home />);
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "已完成直播" })).toBeInTheDocument());
+    await userEvent.click(screen.getByRole("button", { name: "已完成直播" }));
+    await waitFor(() => expect(screen.getByText("七月封存直播")).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole("button", { name: "看更早的 2026 年 6 月" }));
+
+    await waitFor(() => expect(screen.getByText("六月封存直播")).toBeInTheDocument());
+  });
+
+  it("clears a month's failure once a month that does load is chosen", async () => {
+    const fetchMock = stubArchive();
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.endsWith("/archive/index.json")) {
+        return new Response(JSON.stringify({
+          version: "1.0.0",
+          generated_at: "2026-07-21T19:00:00Z",
+          months: [
+            { month: "2026-07", streams: 1, milestones: 0 },
+            { month: "2026-06", streams: 1, milestones: 0 },
+          ],
+        }), { status: 200 });
+      }
+      if (url.endsWith("/archive/2026-07.json")) {
+        return new Response(JSON.stringify(archiveMonth(
+          "2026-07", "archive-july", "七月封存直播", "2026-07-10T10:00:00Z",
+        )), { status: 200 });
+      }
+      if (url.endsWith("/archive/2026-06.json")) return new Response("nope", { status: 500 });
+      return new Response(JSON.stringify(typeFilterFixture), { status: 200 });
+    });
+    render(<Home />);
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "已完成直播" })).toBeInTheDocument());
+    await userEvent.click(screen.getByRole("button", { name: "已完成直播" }));
+    await waitFor(() => expect(screen.getByText("七月封存直播")).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole("button", { name: "2026 年 6 月" }));
+    await waitFor(() => expect(screen.getByText("載入失敗")).toBeInTheDocument());
+
+    // July is already in hand, so nothing fetches — and nothing would clear the failure.
+    await userEvent.click(screen.getByRole("button", { name: "2026 年 7 月" }));
+
+    await waitFor(() => expect(screen.getByText("七月封存直播")).toBeInTheDocument());
+    expect(screen.queryByText("載入失敗")).not.toBeInTheDocument();
+  });
+
+  it("keeps a month it has already read, so stepping back and forth is free", async () => {
+    const fetchMock = stubArchive();
+    render(<Home />);
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "已完成直播" })).toBeInTheDocument());
+    await userEvent.click(screen.getByRole("button", { name: "已完成直播" }));
+    await waitFor(() => expect(screen.getByText("七月封存直播")).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole("button", { name: "更早的月份" }));
+    await waitFor(() => expect(screen.getByText("六月封存直播")).toBeInTheDocument());
+    await userEvent.click(screen.getByRole("button", { name: "更新的月份" }));
+    await waitFor(() => expect(screen.getByText("七月封存直播")).toBeInTheDocument());
+
+    expect(monthRequests(fetchMock, "2026-07")).toBe(1);
   });
 });

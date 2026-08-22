@@ -5,6 +5,9 @@ import {
 } from "@/lib/snapshot";
 import { buildArchiveTimeline, buildTimeline, mergeTimelines } from "@/lib/timeline";
 import {
+  archiveTotal, formatArchiveMonth, itemArchiveMonth, latestArchiveMonth, stepArchiveMonth,
+} from "@/lib/archive-nav";
+import {
   buildGroupFilterOptions,
   buildTimelineKindCounts,
   buildVTuberFilterOptions,
@@ -17,6 +20,7 @@ import type { RailMode } from "@/lib/rail";
 import Header from "./components/Header";
 import CommandBar from "./components/CommandBar";
 import Timeline from "./components/Timeline";
+import ArchiveNavigator from "./components/ArchiveNavigator";
 
 const SNAPSHOT_URL = process.env.NEXT_PUBLIC_SNAPSHOT_URL ?? "https://data.oshi.tw/streams/v1/snapshot.json";
 const ARCHIVE_INDEX_URL = archiveIndexUrl(SNAPSHOT_URL);
@@ -24,9 +28,12 @@ const ARCHIVE_INDEX_URL = archiveIndexUrl(SNAPSHOT_URL);
 export default function Home() {
   const [snap, setSnap] = useState<Snapshot | null>(null);
   const [archiveIndex, setArchiveIndex] = useState<ArchiveIndex | null>(null);
-  const [archiveMonths, setArchiveMonths] = useState<ArchiveMonth[]>([]);
+  const [archiveCache, setArchiveCache] = useState<Record<string, ArchiveMonth>>({});
+  const [pickedMonth, setPickedMonth] = useState<string | null>(null);
+  const [monthRetry, setMonthRetry] = useState(0);
   const [archiveLoading, setArchiveLoading] = useState(false);
   const [archiveError, setArchiveError] = useState(false);
+  const [monthError, setMonthError] = useState(false);
   const [error, setError] = useState(false);
   const [query, setQuery] = useState("");
   const [selectedGroup, setSelectedGroup] = useState<GroupFilterValue>(null);
@@ -34,8 +41,7 @@ export default function Home() {
   const [selectedKind, setSelectedKind] = useState<TimelineKind | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const mounted = useRef(true);
-  const archiveLoadingRef = useRef(false);
-  const autoLoadedKindRef = useRef<TimelineKind | null>(null);
+  const railRef = useRef<HTMLDivElement>(null);
 
   const load = useCallback(() => {
     setError(false);
@@ -65,47 +71,44 @@ export default function Home() {
   }, []);
 
   const historyKind = selectedKind === "recent" || selectedKind === "milestone" ? selectedKind : null;
-  const nextArchive = useMemo(() => {
-    if (!archiveIndex || !historyKind) return null;
-    const loaded = new Set(archiveMonths.map((month) => month.month));
-    return archiveIndex.months.find((month) =>
-      !loaded.has(month.month) && (historyKind === "recent" ? month.streams > 0 : month.milestones > 0),
-    ) ?? null;
-  }, [archiveIndex, archiveMonths, historyKind]);
 
-  const loadNextArchiveMonth = useCallback(async () => {
-    if (!nextArchive || archiveLoadingRef.current) return;
-    archiveLoadingRef.current = true;
-    setArchiveLoading(true);
-    setArchiveError(false);
-    try {
-      const month = await fetchArchiveMonth(archiveMonthUrl(ARCHIVE_INDEX_URL, nextArchive.month));
-      if (!mounted.current) return;
-      setArchiveMonths((current) => current.some((item) => item.month === month.month)
-        ? current
-        : [...current, month]);
-    } catch {
-      if (mounted.current) setArchiveError(true);
-    } finally {
-      archiveLoadingRef.current = false;
-      if (mounted.current) setArchiveLoading(false);
-    }
-  }, [nextArchive]);
+  // A month full of streams can hold no milestones at all, so a pick made under one
+  // kind is not a pick under the other.
+  useEffect(() => { setPickedMonth(null); }, [historyKind]);
 
+  const archiveMonth = useMemo(() => {
+    if (!historyKind || !archiveIndex) return null;
+    return pickedMonth ?? latestArchiveMonth(archiveIndex, historyKind);
+  }, [archiveIndex, historyKind, pickedMonth]);
+
+  // One month in flight at a time — that is the whole point of navigating instead of
+  // accumulating. Months already read stay in memory (data, not DOM) so stepping is free.
   useEffect(() => {
-    if (!historyKind) {
-      autoLoadedKindRef.current = null;
+    // Clearing on the cache-hit path too: a month already in hand starts no fetch, and
+    // a previous month's failure would otherwise stay on screen over working data.
+    if (!archiveMonth || archiveCache[archiveMonth]) {
+      setMonthError(false);
       return;
     }
-    if (archiveLoading || !nextArchive || autoLoadedKindRef.current === historyKind) return;
-    autoLoadedKindRef.current = historyKind;
-    void loadNextArchiveMonth();
-  }, [archiveLoading, historyKind, loadNextArchiveMonth, nextArchive]);
+    let cancelled = false;
+    setArchiveLoading(true);
+    setMonthError(false);
+    fetchArchiveMonth(archiveMonthUrl(ARCHIVE_INDEX_URL, archiveMonth))
+      .then((data) => {
+        if (cancelled || !mounted.current) return;
+        setArchiveCache((cache) => ({ ...cache, [data.month]: data }));
+      })
+      .catch(() => { if (!cancelled && mounted.current) setMonthError(true); })
+      .finally(() => { if (!cancelled && mounted.current) setArchiveLoading(false); });
+    return () => { cancelled = true; };
+  }, [archiveCache, archiveMonth, monthRetry]);
+
+  const archiveData = archiveMonth ? archiveCache[archiveMonth] ?? null : null;
 
   const timeline = useMemo(() => {
     const current = snap ? buildTimeline(snap) : [];
-    return mergeTimelines(current, buildArchiveTimeline(archiveMonths));
-  }, [archiveMonths, snap]);
+    return mergeTimelines(current, archiveData ? buildArchiveTimeline([archiveData]) : []);
+  }, [archiveData, snap]);
   const groups = useMemo(
     () => buildGroupFilterOptions(timeline, snap?.groups ?? []),
     [snap?.groups, timeline],
@@ -118,36 +121,32 @@ export default function Home() {
   const kindCounts = useMemo(() => {
     const loaded = buildTimelineKindCounts(groupedTimeline);
     if (selectedGroup || !archiveIndex || !snap) return loaded;
-    const archivedStreams = archiveIndex.months.reduce((sum, month) => sum + month.streams, 0);
-    const archivedMilestones = archiveIndex.months.reduce((sum, month) => sum + month.milestones, 0);
     const generatedDate = snap.generated_at.slice(0, 10);
     const futureMilestones = snap.milestones.filter((milestone) => milestone.date > generatedDate).length;
     return {
       ...loaded,
-      recent: Math.max(loaded.recent, archivedStreams),
-      milestone: Math.max(loaded.milestone, archivedMilestones + futureMilestones),
+      recent: Math.max(loaded.recent, archiveTotal(archiveIndex, "recent")),
+      milestone: Math.max(loaded.milestone, archiveTotal(archiveIndex, "milestone") + futureMilestones),
     };
   }, [archiveIndex, groupedTimeline, selectedGroup, snap]);
-  const items = useMemo(
-    () => filterTimeline(timeline, query, selectedChannelId, selectedKind, selectedGroup),
-    [timeline, query, selectedChannelId, selectedKind, selectedGroup],
-  );
+  const items = useMemo(() => {
+    const filtered = filterTimeline(timeline, query, selectedChannelId, selectedKind, selectedGroup);
+    // History reads one archive month at a time; without this the current snapshot's own
+    // finished streams would ride along under whatever month is on screen.
+    if (!historyKind || !archiveMonth) return filtered;
+    return filtered.filter((item) => itemArchiveMonth(item) === archiveMonth);
+  }, [archiveMonth, historyKind, query, selectedChannelId, selectedGroup, selectedKind, timeline]);
   // Finished streams and milestones read newest-first; everything else reads forward from now.
   const railMode: RailMode = historyKind ? "history" : "forward";
-  const historyTotal = useMemo(() => {
-    if (!archiveIndex || !historyKind) return 0;
-    return archiveIndex.months.reduce(
-      (sum, month) => sum + (historyKind === "recent" ? month.streams : month.milestones),
-      0,
-    );
-  }, [archiveIndex, historyKind]);
-  const historyLoaded = useMemo(() => {
-    if (!historyKind) return 0;
-    return archiveMonths.reduce(
-      (sum, month) => sum + (historyKind === "recent" ? month.streams.length : month.milestones.length),
-      0,
-    );
-  }, [archiveMonths, historyKind]);
+  const historyTotal = archiveIndex && historyKind ? archiveTotal(archiveIndex, historyKind) : 0;
+  const olderMonth = archiveIndex && historyKind && archiveMonth
+    ? stepArchiveMonth(archiveIndex, historyKind, archiveMonth, -1)
+    : null;
+
+  const goToMonth = (month: string) => {
+    setPickedMonth(month);
+    railRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
 
   return (
     <div className="relative mx-auto min-h-screen max-w-[1120px] px-4 py-6">
@@ -182,7 +181,18 @@ export default function Home() {
               selectedKind={selectedKind}
               onKindSelect={setSelectedKind}
             />
-            <div className="mt-5">
+            {historyKind && archiveIndex && (
+              <ArchiveNavigator
+                index={archiveIndex}
+                kind={historyKind}
+                month={archiveMonth}
+                onSelect={setPickedMonth}
+                onRetry={() => setMonthRetry((attempt) => attempt + 1)}
+                loading={archiveLoading}
+                error={monthError}
+              />
+            )}
+            <div ref={railRef} className="mt-5 scroll-mt-20">
               <Timeline
                 items={items}
                 nowMs={nowMs}
@@ -192,22 +202,7 @@ export default function Home() {
               {historyKind && (
                 <div className="mt-5 flex flex-col items-center gap-2 text-center text-xs text-text-secondary" aria-live="polite">
                   {!archiveIndex && !archiveError && <span>正在讀取永久封存…</span>}
-                  {archiveIndex && historyTotal > 0 && (
-                    <span>
-                      已載入 {Math.min(historyLoaded, historyTotal).toLocaleString()} / {historyTotal.toLocaleString()} 筆歷史封存
-                    </span>
-                  )}
-                  {nextArchive && (
-                    <button
-                      type="button"
-                      onClick={() => void loadNextArchiveMonth()}
-                      disabled={archiveLoading}
-                      className="glass rounded-pill px-4 py-2 text-sm font-semibold text-text-primary disabled:cursor-wait disabled:opacity-60"
-                    >
-                      {archiveLoading ? "載入封存中…" : archiveError ? "重試載入封存" : "載入更早紀錄"}
-                    </button>
-                  )}
-                  {archiveError && !nextArchive && (
+                  {archiveError && (
                     <button
                       type="button"
                       onClick={load}
@@ -221,8 +216,18 @@ export default function Home() {
                       {historyKind === "recent" ? "目前還沒有已完成直播封存。" : "目前還沒有已發生的里程碑封存。"}
                     </span>
                   )}
-                  {archiveIndex && historyTotal > 0 && !nextArchive && historyLoaded >= historyTotal && (
-                    <span>已載入全部永久紀錄。</span>
+                  {olderMonth && (
+                    <button
+                      type="button"
+                      onClick={() => goToMonth(olderMonth)}
+                      disabled={archiveLoading}
+                      className="glass rounded-pill px-4 py-2 text-sm font-semibold text-text-primary disabled:cursor-wait disabled:opacity-60"
+                    >
+                      看更早的 {formatArchiveMonth(olderMonth)}
+                    </button>
+                  )}
+                  {archiveIndex && historyTotal > 0 && !olderMonth && (
+                    <span>這是封存裡最早的月份。</span>
                   )}
                 </div>
               )}
