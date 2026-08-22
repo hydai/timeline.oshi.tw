@@ -32,12 +32,29 @@ describe("streams db", () => {
     expect(ended.length).toBe(1);
   });
 
-  it("getActiveVideoIds returns live/upcoming plus recently first_seen", async () => {
+  it("getActiveVideoIds returns live and upcoming, plus what ended inside the window", async () => {
     await upsertStream(env.DB, base, "2026-07-21T00:05:00Z");
-    await upsertStream(env.DB, { ...base, videoId: "v2", status: "ended" }, "2026-07-21T00:05:00Z");
+    await upsertStream(env.DB, {
+      ...base, videoId: "v2", status: "ended", actualEnd: "2026-07-20T12:00:00Z",
+    }, "2026-07-20T12:05:00Z");
+
     const ids = await getActiveVideoIds(env.DB, "2026-07-20T00:00:00Z");
+
     expect(ids).toContain("v1"); // live
-    expect(ids).toContain("v2"); // ended but first_seen after cutoff
+    expect(ids).toContain("v2"); // ended recently — final numbers can still move
+  });
+
+  it("getActiveVideoIds leaves a long-finished stream alone however recently it was stored", async () => {
+    // A backfill stores thousands of rows at once, so first_seen says when we learned of
+    // a stream, not whether it can still change. Keying the window off first_seen made
+    // one backfill turn every 30-minute refresh into a re-check of the entire archive —
+    // 16,111 videos, 323 videos.list calls, over the whole day's quota in one run.
+    await upsertStream(env.DB, {
+      ...base, videoId: "old", status: "ended",
+      actualStart: "2021-05-01T10:00:00Z", actualEnd: "2021-05-01T12:00:00Z",
+    }, "2026-07-21T00:05:00Z");
+
+    expect(await getActiveVideoIds(env.DB, "2026-07-20T00:00:00Z")).not.toContain("old");
   });
 
   it("keeps old ended streams permanently", async () => {

@@ -127,12 +127,20 @@ export async function markStreamsUnavailableBatch(
   }
 }
 
+/**
+ * What is worth asking YouTube about again: anything still live or scheduled, plus what
+ * ended inside the window, whose final duration and viewer count can still move.
+ *
+ * Deliberately not keyed off first_seen. That says when we learned of a stream, not
+ * whether it can still change — and a backfill stores thousands of long-finished rows
+ * at once, which turned every refresh into a re-check of the whole archive.
+ */
 export async function getActiveVideoIds(db: D1Database, sinceIso: string): Promise<string[]> {
   const { results } = await db
     .prepare(
       `SELECT video_id FROM streams
        WHERE availability = 'available'
-         AND (status IN ('live','upcoming') OR first_seen >= ?1)`,
+         AND (status IN ('live','upcoming') OR actual_end >= ?1)`,
     )
     .bind(sinceIso)
     .all<{ video_id: string }>();
