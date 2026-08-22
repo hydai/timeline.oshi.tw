@@ -352,6 +352,24 @@ describe("Home page", () => {
     await waitFor(() => expect(screen.getByText("六月封存直播")).toBeInTheDocument());
   });
 
+  it("counts a milestone that has not happened yet, without going looking for its month", async () => {
+    // The archive stops at what has passed; upcoming anniversaries arrive on the
+    // snapshot. Both land on the rail, so a month cell that counted only the archive
+    // would promise fewer than it opens — and its month has no file to fetch.
+    const fetchMock = stubArchive();
+    render(<Home />);
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "重要里程碑" })).toBeInTheDocument());
+    await userEvent.click(screen.getByRole("button", { name: "重要里程碑" }));
+
+    const month = FUTURE_MILESTONE_DATE.slice(0, 7);
+    const label = `${month.slice(0, 4)} 年 ${Number(month.slice(5))} 月`;
+    await waitFor(() => expect(screen.getByRole("button", { name: label })).toHaveTextContent("1 筆"));
+    expect(screen.getByText(`週年 · ${FUTURE_MILESTONE_DATE}`)).toBeInTheDocument();
+    expect(screen.queryByText("載入失敗")).not.toBeInTheDocument();
+    expect(monthRequests(fetchMock, month)).toBe(0);
+  });
+
   it("clears a month's failure once a month that does load is chosen", async () => {
     const fetchMock = stubArchive();
     fetchMock.mockImplementation(async (input: RequestInfo | URL) => {

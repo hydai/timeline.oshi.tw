@@ -1,9 +1,9 @@
 import { describe, it, expect } from "vitest";
 import {
   archiveTotal, archiveYearMonths, archiveYears, formatArchiveMonth, itemArchiveMonth,
-  latestArchiveMonth, stepArchiveMonth,
+  latestArchiveMonth, stepArchiveMonth, withPendingMilestones,
 } from "@/lib/archive-nav";
-import type { ArchiveIndex, SnapshotChannel } from "@/lib/types";
+import type { ArchiveIndex, Milestone, SnapshotChannel } from "@/lib/types";
 
 /** Deliberately gappy: whole years missing, and the two kinds peak in different months. */
 const index: ArchiveIndex = {
@@ -105,6 +105,42 @@ describe("archiveTotal", () => {
   it("adds up the whole archive for one kind", () => {
     expect(archiveTotal(index, "recent")).toBe(1815);
     expect(archiveTotal(index, "milestone")).toBe(3);
+  });
+});
+
+describe("withPendingMilestones", () => {
+  // The archive only carries milestones that have already passed, but the rail also
+  // shows the ones coming up — they ride in on the current snapshot. Counted or not,
+  // they are on screen, so a month cell that ignores them contradicts what it opens.
+  const pending: Milestone[] = [
+    { channelId: "c", type: "anniversary", date: "2026-08-28" },
+    { channelId: "c", type: "anniversary", date: "2026-08-07" },
+    { channelId: "c", type: "anniversary", date: "2026-09-03" },
+  ];
+
+  it("counts a milestone the archive has not reached yet", () => {
+    const months = withPendingMilestones(index, pending, "2026-08-22").months;
+
+    expect(months.find((month) => month.month === "2026-08")).toEqual({
+      month: "2026-08", streams: 266, milestones: 1,
+    });
+  });
+
+  it("leaves out the ones the archive already counts", () => {
+    // 2026-08-07 is on or before the cutoff, so the index already includes it.
+    expect(archiveTotal(withPendingMilestones(index, pending, "2026-08-22"), "milestone"))
+      .toBe(archiveTotal(index, "milestone") + 2);
+  });
+
+  it("opens a month the archive has no row for at all", () => {
+    const months = withPendingMilestones(index, pending, "2026-08-22").months;
+
+    expect(months[0]).toEqual({ month: "2026-09", streams: 0, milestones: 1 });
+  });
+
+  it("never touches the stream counts", () => {
+    expect(archiveTotal(withPendingMilestones(index, pending, "2026-08-22"), "recent"))
+      .toBe(archiveTotal(index, "recent"));
   });
 });
 

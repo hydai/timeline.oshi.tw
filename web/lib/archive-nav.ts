@@ -1,5 +1,5 @@
 import { taipeiDayKey } from "./time";
-import type { ArchiveIndex, ArchiveMonthSummary, TimelineItem } from "./types";
+import type { ArchiveIndex, ArchiveMonthSummary, Milestone, TimelineItem } from "./types";
 
 /** The two timeline kinds that read backwards, and so are served from the archive. */
 export type HistoryKind = "recent" | "milestone";
@@ -38,6 +38,35 @@ export function latestArchiveMonth(
   const months = stocked(index, kind)
     .filter((summary) => year == null || summary.month.startsWith(`${year}-`));
   return months[0]?.month ?? null;
+}
+
+/**
+ * The archive only carries milestones that have already passed; the ones still coming
+ * ride in on the current snapshot. Both end up on the rail, so both have to be counted
+ * or a month cell contradicts what choosing it shows. `cutoff` is the archive's own
+ * generated date — what it had reached when it was written.
+ */
+export function withPendingMilestones(
+  index: ArchiveIndex,
+  milestones: Milestone[],
+  cutoff: string,
+): ArchiveIndex {
+  const pending = new Map<string, number>();
+  for (const milestone of milestones) {
+    if (milestone.date <= cutoff) continue;
+    const month = milestone.date.slice(0, 7);
+    pending.set(month, (pending.get(month) ?? 0) + 1);
+  }
+  if (pending.size === 0) return index;
+
+  const months = index.months.map((summary) => {
+    const extra = pending.get(summary.month);
+    if (!extra) return summary;
+    pending.delete(summary.month);
+    return { ...summary, milestones: summary.milestones + extra };
+  });
+  for (const [month, count] of pending) months.push({ month, streams: 0, milestones: count });
+  return { ...index, months: months.sort((left, right) => right.month.localeCompare(left.month)) };
 }
 
 /** Oldest first — the year row reads left to right like a timeline. */

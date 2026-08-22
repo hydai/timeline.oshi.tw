@@ -6,6 +6,7 @@ import {
 import { buildArchiveTimeline, buildTimeline, mergeTimelines } from "@/lib/timeline";
 import {
   archiveTotal, formatArchiveMonth, itemArchiveMonth, latestArchiveMonth, stepArchiveMonth,
+  withPendingMilestones,
 } from "@/lib/archive-nav";
 import {
   buildGroupFilterOptions,
@@ -76,17 +77,25 @@ export default function Home() {
   // kind is not a pick under the other.
   useEffect(() => { setPickedMonth(null); }, [historyKind]);
 
+  // What the navigator counts: the archive plus the milestones still ahead of it, which
+  // reach the rail on the snapshot. Fetching still goes by archiveIndex — a month that
+  // exists only because of a pending milestone has no file to ask for.
+  const navIndex = useMemo(() => (archiveIndex && snap
+    ? withPendingMilestones(archiveIndex, snap.milestones, archiveIndex.generated_at.slice(0, 10))
+    : archiveIndex), [archiveIndex, snap]);
+
   const archiveMonth = useMemo(() => {
-    if (!historyKind || !archiveIndex) return null;
-    return pickedMonth ?? latestArchiveMonth(archiveIndex, historyKind);
-  }, [archiveIndex, historyKind, pickedMonth]);
+    if (!historyKind || !navIndex) return null;
+    return pickedMonth ?? latestArchiveMonth(navIndex, historyKind);
+  }, [historyKind, navIndex, pickedMonth]);
 
   // One month in flight at a time — that is the whole point of navigating instead of
   // accumulating. Months already read stay in memory (data, not DOM) so stepping is free.
   useEffect(() => {
     // Clearing on the cache-hit path too: a month already in hand starts no fetch, and
     // a previous month's failure would otherwise stay on screen over working data.
-    if (!archiveMonth || archiveCache[archiveMonth]) {
+    const archived = archiveIndex?.months.some((month) => month.month === archiveMonth);
+    if (!archiveMonth || !archived || archiveCache[archiveMonth]) {
       setMonthError(false);
       return;
     }
@@ -101,7 +110,7 @@ export default function Home() {
       .catch(() => { if (!cancelled && mounted.current) setMonthError(true); })
       .finally(() => { if (!cancelled && mounted.current) setArchiveLoading(false); });
     return () => { cancelled = true; };
-  }, [archiveCache, archiveMonth, monthRetry]);
+  }, [archiveCache, archiveIndex, archiveMonth, monthRetry]);
 
   const archiveData = archiveMonth ? archiveCache[archiveMonth] ?? null : null;
 
@@ -120,15 +129,13 @@ export default function Home() {
   const vtubers = useMemo(() => buildVTuberFilterOptions(groupedTimeline), [groupedTimeline]);
   const kindCounts = useMemo(() => {
     const loaded = buildTimelineKindCounts(groupedTimeline);
-    if (selectedGroup || !archiveIndex || !snap) return loaded;
-    const generatedDate = snap.generated_at.slice(0, 10);
-    const futureMilestones = snap.milestones.filter((milestone) => milestone.date > generatedDate).length;
+    if (selectedGroup || !navIndex || !snap) return loaded;
     return {
       ...loaded,
-      recent: Math.max(loaded.recent, archiveTotal(archiveIndex, "recent")),
-      milestone: Math.max(loaded.milestone, archiveTotal(archiveIndex, "milestone") + futureMilestones),
+      recent: Math.max(loaded.recent, archiveTotal(navIndex, "recent")),
+      milestone: Math.max(loaded.milestone, archiveTotal(navIndex, "milestone")),
     };
-  }, [archiveIndex, groupedTimeline, selectedGroup, snap]);
+  }, [groupedTimeline, navIndex, selectedGroup, snap]);
   const items = useMemo(() => {
     const filtered = filterTimeline(timeline, query, selectedChannelId, selectedKind, selectedGroup);
     // History reads one archive month at a time; without this the current snapshot's own
@@ -138,9 +145,9 @@ export default function Home() {
   }, [archiveMonth, historyKind, query, selectedChannelId, selectedGroup, selectedKind, timeline]);
   // Finished streams and milestones read newest-first; everything else reads forward from now.
   const railMode: RailMode = historyKind ? "history" : "forward";
-  const historyTotal = archiveIndex && historyKind ? archiveTotal(archiveIndex, historyKind) : 0;
-  const olderMonth = archiveIndex && historyKind && archiveMonth
-    ? stepArchiveMonth(archiveIndex, historyKind, archiveMonth, -1)
+  const historyTotal = navIndex && historyKind ? archiveTotal(navIndex, historyKind) : 0;
+  const olderMonth = navIndex && historyKind && archiveMonth
+    ? stepArchiveMonth(navIndex, historyKind, archiveMonth, -1)
     : null;
 
   const goToMonth = (month: string) => {
@@ -181,9 +188,9 @@ export default function Home() {
               selectedKind={selectedKind}
               onKindSelect={setSelectedKind}
             />
-            {historyKind && archiveIndex && (
+            {historyKind && navIndex && (
               <ArchiveNavigator
-                index={archiveIndex}
+                index={navIndex}
                 kind={historyKind}
                 month={archiveMonth}
                 onSelect={setPickedMonth}
@@ -201,7 +208,7 @@ export default function Home() {
               />
               {historyKind && (
                 <div className="mt-5 flex flex-col items-center gap-2 text-center text-xs text-text-secondary" aria-live="polite">
-                  {!archiveIndex && !archiveError && <span>正在讀取永久封存…</span>}
+                  {!navIndex && !archiveError && <span>正在讀取永久封存…</span>}
                   {archiveError && (
                     <button
                       type="button"
@@ -211,7 +218,7 @@ export default function Home() {
                       重試讀取封存
                     </button>
                   )}
-                  {archiveIndex && historyTotal === 0 && (
+                  {navIndex && historyTotal === 0 && (
                     <span>
                       {historyKind === "recent" ? "目前還沒有已完成直播封存。" : "目前還沒有已發生的里程碑封存。"}
                     </span>
@@ -226,7 +233,7 @@ export default function Home() {
                       看更早的 {formatArchiveMonth(olderMonth)}
                     </button>
                   )}
-                  {archiveIndex && historyTotal > 0 && !olderMonth && (
+                  {navIndex && historyTotal > 0 && !olderMonth && (
                     <span>這是封存裡最早的月份。</span>
                   )}
                 </div>
