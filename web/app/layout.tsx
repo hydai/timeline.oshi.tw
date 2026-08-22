@@ -5,7 +5,7 @@ import { DM_Sans } from "next/font/google";
 const dmSans = DM_Sans({ subsets: ["latin"], weight: ["400", "500", "600", "700", "900"], variable: "--font-dm-sans", display: "swap" });
 
 export const metadata = {
-  title: "timeline.oshi.tw — 台 V 直播時間軸",
+  title: "timeline.oshi.tw — 直播時間軸",
   description: "台灣 VTuber 直播動態河道",
 };
 
