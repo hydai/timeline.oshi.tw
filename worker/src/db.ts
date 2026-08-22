@@ -282,6 +282,29 @@ export async function listMilestonesByMonth(
   return results.map(rowToMilestone);
 }
 
+/**
+ * One month's counts, without aggregating the archive. The cheap refresh pass only
+ * needs the month still filling up — everything behind it is settled and already
+ * published in the index.
+ */
+export async function getArchiveMonthSummary(
+  db: D1Database,
+  month: string,
+  cutoffIso: string,
+): Promise<ArchiveMonthSummary> {
+  const bounds = monthBounds(month);
+  const row = await db
+    .prepare(`SELECT
+      (SELECT COUNT(*) FROM streams
+        WHERE status = 'ended' AND availability = 'available'
+          AND actual_end >= ?1 AND actual_end < ?2 AND actual_end <= ?3) AS streams,
+      (SELECT COUNT(*) FROM milestones
+        WHERE substr(date, 1, 7) = ?4 AND date <= ?5) AS milestones`)
+    .bind(bounds.start, bounds.end, cutoffIso, month, cutoffIso.slice(0, 10))
+    .first<{ streams: number; milestones: number }>();
+  return { month, streams: Number(row?.streams ?? 0), milestones: Number(row?.milestones ?? 0) };
+}
+
 export async function listArchiveMonthSummaries(
   db: D1Database,
   cutoffIso: string,

@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { env } from "cloudflare:test";
 import {
-  listArchiveMonthSummaries, listEndedStreamsByMonth, listEndedStreamsSince, listMilestonesBetween,
-  listMilestonesByMonth, upsertChannelId, upsertMilestonesBatch, upsertStream,
+  getArchiveMonthSummary, listArchiveMonthSummaries, listEndedStreamsByMonth,
+  listEndedStreamsSince, listMilestonesBetween, listMilestonesByMonth, upsertChannelId,
+  upsertMilestonesBatch, upsertStream,
 } from "../src/db";
 import type { StreamRecord } from "../src/types";
 
@@ -95,6 +96,37 @@ describe("permanent history db", () => {
       .map((stream) => stream.videoId)).toEqual(["after-midnight"]);
     expect((await listEndedStreamsByMonth(env.DB, "2025-04", "2026-07-21T00:00:00Z"))
       .map((stream) => stream.videoId)).toEqual(["before-midnight"]);
+  });
+
+  it("counts one month on its own, so the cheap pass need not aggregate the archive", async () => {
+    await upsertStream(env.DB, ended, "2024-03-10T11:05:00Z");
+    await upsertStream(env.DB, {
+      ...ended, videoId: "next-month", actualStart: "2024-04-02T10:00:00Z", actualEnd: "2024-04-02T11:00:00Z",
+    }, "2024-04-02T11:05:00Z");
+    await upsertMilestonesBatch(env.DB, [
+      { channelId: "UCaaa", type: "anniversary", date: "2024-03-15" },
+      { channelId: "UCaaa", type: "anniversary", date: "2024-04-15" },
+    ], "2026-07-21T00:00:00Z");
+
+    expect(await getArchiveMonthSummary(env.DB, "2024-03", "2026-07-21T00:00:00Z")).toEqual({
+      month: "2024-03", streams: 1, milestones: 1,
+    });
+  });
+
+  it("counts a month by Taipei time and stops at the cutoff, exactly as the full pass does", async () => {
+    await upsertStream(env.DB, {
+      ...ended, videoId: "after-midnight",
+      actualStart: "2024-03-31T16:00:30Z", actualEnd: "2024-03-31T18:00:00Z",
+    }, "2024-03-31T18:05:00Z");
+    await upsertStream(env.DB, {
+      ...ended, videoId: "not-yet", actualStart: "2024-04-20T10:00:00Z", actualEnd: "2024-04-20T11:00:00Z",
+    }, "2024-04-20T11:05:00Z");
+
+    // 18:00Z on 3/31 is 02:00 on 4/1 in Taipei, so March holds none of it.
+    expect((await getArchiveMonthSummary(env.DB, "2024-03", "2026-07-21T00:00:00Z")).streams).toBe(0);
+    expect(await getArchiveMonthSummary(env.DB, "2024-04", "2024-04-10T00:00:00Z")).toEqual({
+      month: "2024-04", streams: 1, milestones: 0, // "not-yet" is past the cutoff
+    });
   });
 
   it("can read only the recent ended window without touching permanent older rows", async () => {

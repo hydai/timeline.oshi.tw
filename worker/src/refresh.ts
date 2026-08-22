@@ -187,7 +187,7 @@ export async function lightRefresh(env: Env, deps: RefreshDeps): Promise<Snapsho
     nowIso, heavyRefreshedAtIso: last.heavy_refreshed_at,
   });
   await writeSnapshot(env.DATA_PUBLIC, snapshot);
-  await publishArchive(env.DB, env.DATA_PUBLIC, roster, nowIso);
+  await publishArchive(env.DB, env.DATA_PUBLIC, roster, nowIso, "current-month");
   return snapshot;
 }
 

@@ -4,7 +4,7 @@ import {
   listStreamsByStatus, markStreamsUnavailableBatch, upsertChannelId, upsertMilestonesBatch, upsertStream,
 } from "../src/db";
 import { lightRefresh, type RefreshDeps } from "../src/refresh";
-import { writeSnapshot } from "../src/r2";
+import { readArchiveIndex, writeArchiveIndex, writeSnapshot } from "../src/r2";
 import type { Snapshot, StreamRecord } from "../src/types";
 
 const upcomingRec: StreamRecord = {
@@ -114,6 +114,25 @@ describe("lightRefresh", () => {
     }));
 
     expect(fetchVideoDetails.mock.calls[0]![0]).toContain("GONE");
+  });
+
+  it("republishes only the month still filling up, trusting the index for the rest", async () => {
+    await upsertStream(env.DB, {
+      ...upcomingRec, videoId: "OLD", status: "ended", scheduledStart: null,
+      actualStart: "2026-05-01T10:00:00Z", actualEnd: "2026-05-01T12:00:00Z",
+    }, "2026-05-01T12:05:00Z");
+    // Deliberately wrong: a pass that re-aggregates the archive would correct it.
+    await writeArchiveIndex(env.DATA_PUBLIC, {
+      version: "1.0.0",
+      generated_at: "2026-07-20T00:00:00Z",
+      grouping: "Asia/Taipei",
+      months: [{ month: "2026-05", streams: 99, milestones: 0 }],
+    });
+
+    await lightRefresh(env, deps());
+
+    expect((await readArchiveIndex(env.DATA_PUBLIC))!.months)
+      .toContainEqual({ month: "2026-05", streams: 99, milestones: 0 });
   });
 
   it("removes a known active stream omitted from a successful YouTube response", async () => {

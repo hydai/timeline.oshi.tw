@@ -24,7 +24,7 @@ beforeEach(async () => {
   await env.DB.exec("DELETE FROM streams");
   await env.DB.exec("DELETE FROM channels");
   await env.DATA_PUBLIC.delete([
-    ARCHIVE_INDEX_KEY, archiveMonthKey("2024-03"), archiveMonthKey("2026-09"),
+    ARCHIVE_INDEX_KEY, archiveMonthKey("2024-03"), archiveMonthKey("2026-07"), archiveMonthKey("2026-09"),
   ]);
   await upsertChannelId(env.DB, "UCaaa", "2021-01-01T00:00:00Z");
   await setChannelMeta(env.DB, {
@@ -85,6 +85,83 @@ describe("publishArchive", () => {
     await publishArchive(env.DB, env.DATA_PUBLIC, new Map(), "2026-07-21T00:00:00Z");
 
     expect(await env.DATA_PUBLIC.get(archiveMonthKey("2024-03"))).not.toBeNull();
+  });
+
+  describe("current-month scope", () => {
+    const taipeiIndex = (months: { month: string; streams: number; milestones: number }[]) => ({
+      version: "1.0.0" as const,
+      generated_at: "2026-07-20T00:00:00Z",
+      grouping: "Asia/Taipei" as const,
+      months,
+    });
+
+    it("takes every month but the current one from the published index, unread", async () => {
+      // The count below is deliberately wrong. If the cheap pass still aggregates the
+      // archive it will correct it — which is exactly the work we are trying to skip.
+      await upsertStream(env.DB, historicalStream, "2024-03-01T11:05:00Z");
+      await writeArchiveIndex(env.DATA_PUBLIC, taipeiIndex([{ month: "2024-03", streams: 99, milestones: 0 }]));
+
+      const index = await publishArchive(
+        env.DB, env.DATA_PUBLIC, new Map(), "2026-07-21T00:00:00Z", "current-month",
+      );
+
+      expect(index.months).toEqual([{ month: "2024-03", streams: 99, milestones: 0 }]);
+      expect(await env.DATA_PUBLIC.get(archiveMonthKey("2024-03"))).toBeNull();
+    });
+
+    it("still republishes the month that is filling up", async () => {
+      await upsertStream(env.DB, {
+        ...historicalStream, videoId: "tonight",
+        actualStart: "2026-07-20T10:00:00Z", actualEnd: "2026-07-20T11:00:00Z",
+      }, "2026-07-20T11:05:00Z");
+      await writeArchiveIndex(env.DATA_PUBLIC, taipeiIndex([]));
+
+      const index = await publishArchive(
+        env.DB, env.DATA_PUBLIC, new Map(), "2026-07-21T00:00:00Z", "current-month",
+      );
+
+      expect(index.months).toEqual([{ month: "2026-07", streams: 1, milestones: 0 }]);
+      const archived = await (await env.DATA_PUBLIC.get(archiveMonthKey("2026-07")))!.json<ArchiveMonth>();
+      expect(archived.streams.map((stream) => stream.videoId)).toEqual(["tonight"]);
+    });
+
+    it("invents no row for a current month with nothing in it yet", async () => {
+      await upsertStream(env.DB, historicalStream, "2024-03-01T11:05:00Z");
+      await writeArchiveIndex(env.DATA_PUBLIC, taipeiIndex([{ month: "2024-03", streams: 1, milestones: 0 }]));
+
+      const index = await publishArchive(
+        env.DB, env.DATA_PUBLIC, new Map(), "2026-07-21T00:00:00Z", "current-month",
+      );
+
+      expect(index.months.map((month) => month.month)).toEqual(["2024-03"]);
+    });
+
+    it("falls back to the full pass when there is no index to trust", async () => {
+      await upsertStream(env.DB, historicalStream, "2024-03-01T11:05:00Z");
+
+      const index = await publishArchive(
+        env.DB, env.DATA_PUBLIC, new Map(), "2026-07-21T00:00:00Z", "current-month",
+      );
+
+      expect(index.months).toEqual([{ month: "2024-03", streams: 1, milestones: 0 }]);
+      expect(await env.DATA_PUBLIC.get(archiveMonthKey("2024-03"))).not.toBeNull();
+    });
+
+    it("falls back to the full pass when the index predates the grouping", async () => {
+      await upsertStream(env.DB, historicalStream, "2024-03-01T11:05:00Z");
+      await writeArchiveIndex(env.DATA_PUBLIC, {
+        version: "1.0.0",
+        generated_at: "2026-07-20T00:00:00Z",
+        months: [{ month: "2024-03", streams: 99, milestones: 0 }],
+      });
+
+      const index = await publishArchive(
+        env.DB, env.DATA_PUBLIC, new Map(), "2026-07-21T00:00:00Z", "current-month",
+      );
+
+      expect(index.months).toEqual([{ month: "2024-03", streams: 1, milestones: 0 }]);
+      expect(await env.DATA_PUBLIC.get(archiveMonthKey("2024-03"))).not.toBeNull();
+    });
   });
 
   it("keeps refreshing the current Taipei month after UTC has fallen behind", async () => {
