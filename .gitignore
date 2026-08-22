@@ -7,6 +7,8 @@ out/
 .DS_Store
 *.log
 .dev.vars
+# Local copy of MANUAL_TRIGGER_TOKEN — Cloudflare will not give it back once set
+.timeline-trigger-token
 .superpowers/
 # Planning docs stay untracked (project convention)
 docs/superpowers/
