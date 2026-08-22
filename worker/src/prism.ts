@@ -18,7 +18,11 @@ export function prismSnapshotKey(sha256: string): string {
   return `vod/v1/snapshots/${sha256}.json`;
 }
 
-/** "個人勢" is the absence of a company, not the name of one. */
+/**
+ * Prism states a group for every streamer it carries — there are no nulls or gaps —
+ * so "個人勢" is an assertion that the channel is unaffiliated, not missing data. We
+ * represent that as null, which the site renders as 個人勢.
+ */
 const UNAFFILIATED = "個人勢";
 
 interface PrismManifest { sha256?: unknown }
@@ -34,25 +38,26 @@ export function normalizeGroupName(raw: string): string {
   return raw.normalize("NFKC").trim();
 }
 
-/** Overlay prism's company names onto a twvtuber roster, without ever losing one. */
+/**
+ * Overlay prism's affiliations onto a twvtuber roster. Prism wins for every channel it
+ * carries, including clearing one twvtuber has stale — 銀河 Galaxy went solo while
+ * twvtuber still filed it under 靛堂. Channels prism does not carry are left alone.
+ */
 export function applyPrismGroups(
   roster: Map<string, RosterEntry>,
-  prismGroups: Map<string, string>,
+  prismGroups: Map<string, string | null>,
 ): Map<string, RosterEntry> {
   const merged = new Map(roster);
 
   for (const [youtubeId, entry] of roster) {
-    const raw = prismGroups.get(youtubeId);
-    if (!raw) continue;
-
-    const override = normalizeGroupName(raw);
-    // Prism saying "個人勢" means it has no affiliation on file, which is not grounds
-    // for deleting one we do have — 銀河 Galaxy would lose 靛堂.
-    if (!override || override === UNAFFILIATED) continue;
+    if (!prismGroups.has(youtubeId)) continue;
+    const raw = prismGroups.get(youtubeId) ?? null;
+    const override = raw === null ? null : normalizeGroupName(raw) || null;
 
     // Same company, differently spelled: keep the name we already display, which is
     // the better-cased of the two.
-    if (entry.group && normalizeGroupName(entry.group).toLowerCase() === override.toLowerCase()) {
+    if (override && entry.group
+        && normalizeGroupName(entry.group).toLowerCase() === override.toLowerCase()) {
       continue;
     }
     merged.set(youtubeId, { ...entry, group: override });
@@ -66,8 +71,8 @@ export function applyPrismGroups(
  * that has been pruned, malformed JSON — yields an empty map, so a prism outage leaves
  * the twvtuber groups standing rather than blanking them.
  */
-export async function readPrismGroups(bucket: R2Bucket): Promise<Map<string, string>> {
-  const groups = new Map<string, string>();
+export async function readPrismGroups(bucket: R2Bucket): Promise<Map<string, string | null>> {
+  const groups = new Map<string, string | null>();
 
   const manifestObject = await bucket.get(PRISM_MANIFEST_KEY);
   if (!manifestObject) return groups;
@@ -96,8 +101,8 @@ export async function readPrismGroups(bucket: R2Bucket): Promise<Map<string, str
     const { youtubeChannelId, group } = streamer;
     if (typeof youtubeChannelId !== "string" || typeof group !== "string") continue;
     const name = normalizeGroupName(group);
-    if (!name || name === UNAFFILIATED) continue;
-    groups.set(youtubeChannelId, name);
+    if (!name) continue;
+    groups.set(youtubeChannelId, name === UNAFFILIATED ? null : name);
   }
 
   return groups;

@@ -38,13 +38,14 @@ describe("applyPrismGroups", () => {
     expect(merged.get("UCa")!.group).toBe("春魚創意");
   });
 
-  it("never downgrades a channel we already have a company for", () => {
-    // Prism has no affiliation on file for 銀河 Galaxy; twvtuber says 靛堂. Letting
-    // prism's 個人勢 win would delete a whole company from the filter bar.
+  it("lets prism clear a company that is no longer current", () => {
+    // Prism states a group for every streamer it carries, so "個人勢" is an assertion
+    // that the channel is unaffiliated — not a gap. 銀河 Galaxy really did go solo;
+    // twvtuber still says 靛堂. Ungrouped is null for us, which the UI renders 個人勢.
     const roster = new Map([["UCg", entry("UCg", "銀河 Galaxy", "靛堂")]]);
-    const merged = applyPrismGroups(roster, new Map([["UCg", "個人勢"]]));
+    const merged = applyPrismGroups(roster, new Map([["UCg", null]]));
 
-    expect(merged.get("UCg")!.group).toBe("靛堂");
+    expect(merged.get("UCg")!.group).toBeNull();
   });
 
   it("keeps the better-cased existing name when both mean the same company", () => {
@@ -91,8 +92,11 @@ describe("readPrismGroups", () => {
     const groups = await readPrismGroups(env.DATA_PUBLIC);
 
     expect(groups.get("UCa")).toBe("春魚創意");
-    // 個人勢 and null carry no affiliation, so they are not overrides at all.
-    expect(groups.has("UCb")).toBe(false);
+    // "個人勢" is prism asserting the channel is unaffiliated, so it maps to null and
+    // still counts as an override.
+    expect(groups.has("UCb")).toBe(true);
+    expect(groups.get("UCb")).toBeNull();
+    // A missing group is malformed rather than an assertion, so it is skipped.
     expect(groups.has("UCc")).toBe(false);
   });
 

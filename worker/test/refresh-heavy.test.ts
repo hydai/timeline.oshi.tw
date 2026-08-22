@@ -74,12 +74,13 @@ describe("heavyRefresh", () => {
     expect(snap.groups).toContain("春魚創意");
   });
 
-  it("keeps the twvtuber company when prism has no affiliation on file", async () => {
+  it("lets prism clear a company twvtuber still has on file", async () => {
     await publishPrismGroups({ UCaaa: "個人勢" });
 
     const snap = await heavyRefresh(env, deps());
 
-    expect(snap.channels["UCaaa"]!.group).toBe("子午計畫");
+    expect(snap.channels["UCaaa"]!.group).toBeNull();
+    expect(snap.groups).not.toContain("子午計畫");
   });
 
   it("publishes unchanged when prism data is unavailable", async () => {

@@ -113,8 +113,9 @@ export async function heavyRefresh(env: Env, deps: RefreshDeps): Promise<Snapsho
     console.warn(`roster failed: ${(e as Error).message}`);
   }
 
-  // Prism is the authority on company names — twvtuber files 春魚創意 under the brand
-  // "SquareLive". It only ever adds or renames; a prism outage leaves the roster as-is.
+  // Prism is the authority on affiliation — twvtuber files 春魚創意 under the brand
+  // "SquareLive", and still lists 銀河 Galaxy under 靛堂 after it went solo. Prism wins
+  // for every channel it carries; a prism outage leaves the roster untouched.
   try {
     roster = applyPrismGroups(roster, await readPrismGroups(env.DATA_PUBLIC));
   } catch (e) {
