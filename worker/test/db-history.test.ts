@@ -66,6 +66,37 @@ describe("permanent history db", () => {
     ]);
   });
 
+  it("files a stream by its Taipei calendar month, not its UTC one", async () => {
+    // 18:10Z on the last of the month is 02:10 the next morning in Taipei. Grouping by
+    // UTC put it in April while the rail headed it 5/1 — the file and the page disagreed.
+    await upsertStream(env.DB, {
+      ...ended,
+      videoId: "after-midnight",
+      actualStart: "2025-04-30T16:00:30Z",
+      actualEnd: "2025-04-30T18:10:58Z",
+    }, "2025-04-30T18:15:00Z");
+    await upsertStream(env.DB, {
+      ...ended,
+      videoId: "before-midnight",
+      actualStart: "2025-04-30T14:00:00Z",
+      actualEnd: "2025-04-30T15:59:59Z",
+    }, "2025-04-30T16:05:00Z");
+    await upsertMilestonesBatch(
+      env.DB,
+      [{ channelId: "UCaaa", type: "anniversary", date: "2025-05-01" }],
+      "2026-07-21T00:00:00Z",
+    );
+
+    expect(await listArchiveMonthSummaries(env.DB, "2026-07-21T00:00:00Z")).toEqual([
+      { month: "2025-05", streams: 1, milestones: 1 },
+      { month: "2025-04", streams: 1, milestones: 0 },
+    ]);
+    expect((await listEndedStreamsByMonth(env.DB, "2025-05", "2026-07-21T00:00:00Z"))
+      .map((stream) => stream.videoId)).toEqual(["after-midnight"]);
+    expect((await listEndedStreamsByMonth(env.DB, "2025-04", "2026-07-21T00:00:00Z"))
+      .map((stream) => stream.videoId)).toEqual(["before-midnight"]);
+  });
+
   it("can read only the recent ended window without touching permanent older rows", async () => {
     await upsertStream(env.DB, ended, "2024-03-10T11:05:00Z");
     await upsertStream(env.DB, {

@@ -3,9 +3,12 @@ import {
 } from "./db";
 import { readArchiveIndex, writeArchiveIndex, writeArchiveMonth } from "./r2";
 import { toSnapshotChannel, toSnapshotStream } from "./snapshot";
+import { taipeiMonth } from "./time";
 import type {
   ArchiveIndex, ArchiveMonth, ArchiveMonthSummary, RosterEntry, SnapshotChannel,
 } from "./types";
+
+const GROUPING = "Asia/Taipei";
 
 function countsMatch(left: ArchiveMonthSummary | undefined, right: ArchiveMonthSummary): boolean {
   return left?.streams === right.streams && left.milestones === right.milestones;
@@ -20,9 +23,12 @@ export async function publishArchive(
   const months = await listArchiveMonthSummaries(db, nowIso);
   const previous = await readArchiveIndex(bucket);
   const previousByMonth = new Map((previous?.months ?? []).map((summary) => [summary.month, summary]));
-  const currentMonth = nowIso.slice(0, 7);
-  const changed = months.filter(
-    (summary) => summary.month === currentMonth || !countsMatch(previousByMonth.get(summary.month), summary),
+  const currentMonth = taipeiMonth(nowIso);
+  // Moving a month boundary shuffles streams between files without necessarily changing
+  // any count, which is all countsMatch can see — so a grouping change rewrites the lot.
+  const regrouped = previous?.grouping !== GROUPING;
+  const changed = months.filter((summary) =>
+    regrouped || summary.month === currentMonth || !countsMatch(previousByMonth.get(summary.month), summary),
   );
 
   if (changed.length > 0) {
@@ -53,7 +59,7 @@ export async function publishArchive(
     }
   }
 
-  const index: ArchiveIndex = { version: "1.0.0", generated_at: nowIso, months };
+  const index: ArchiveIndex = { version: "1.0.0", generated_at: nowIso, grouping: GROUPING, months };
   await writeArchiveIndex(bucket, index);
   return index;
 }

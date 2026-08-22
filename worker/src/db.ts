@@ -1,6 +1,7 @@
 import type {
   ArchiveMonthSummary, ChannelMeta, ChannelRow, Milestone, StreamRecord, StreamStatus,
 } from "./types";
+import { TAIPEI_OFFSET_MS } from "./time";
 
 // D1Database.batch() executes an array of prepared statements in a single
 // subrequest, but an unbounded array risks hitting D1/Workers limits — cap
@@ -201,16 +202,23 @@ export async function listMilestonesBetween(
   return results.map(rowToMilestone);
 }
 
+/**
+ * Archive months are Taipei months, matching how the site groups days. Grouping by UTC
+ * month filed the last eight hours of a month under the previous one, while the rail
+ * headed those same streams with the next month's date.
+ */
+const TAIPEI_MONTH_SQL = "substr(datetime(actual_end, '+8 hours'), 1, 7)";
+
+/** The UTC instants bounding a Taipei month, so the range stays an indexed comparison. */
 function monthBounds(month: string): { start: string; end: string } {
   const match = /^(\d{4})-(\d{2})$/.exec(month);
   if (!match) throw new Error(`invalid archive month: ${month}`);
   const year = Number(match[1]);
   const monthIndex = Number(match[2]) - 1;
   if (monthIndex < 0 || monthIndex > 11) throw new Error(`invalid archive month: ${month}`);
-  const next = new Date(Date.UTC(year, monthIndex + 1, 1)).toISOString().slice(0, 7);
   return {
-    start: `${month}-01T00:00:00.000Z`,
-    end: `${next}-01T00:00:00.000Z`,
+    start: new Date(Date.UTC(year, monthIndex, 1) - TAIPEI_OFFSET_MS).toISOString(),
+    end: new Date(Date.UTC(year, monthIndex + 1, 1) - TAIPEI_OFFSET_MS).toISOString(),
   };
 }
 
@@ -252,11 +260,11 @@ export async function listArchiveMonthSummaries(
   const cutoffDate = cutoffIso.slice(0, 10);
   const { results } = await db
     .prepare(`WITH archive_rows AS (
-      SELECT substr(actual_end, 1, 7) AS month, COUNT(*) AS streams, 0 AS milestones
+      SELECT ${TAIPEI_MONTH_SQL} AS month, COUNT(*) AS streams, 0 AS milestones
       FROM streams
       WHERE status = 'ended' AND availability = 'available'
         AND actual_end IS NOT NULL AND actual_end <= ?1
-      GROUP BY substr(actual_end, 1, 7)
+      GROUP BY ${TAIPEI_MONTH_SQL}
       UNION ALL
       SELECT substr(date, 1, 7) AS month, 0 AS streams, COUNT(*) AS milestones
       FROM milestones

@@ -1,3 +1,4 @@
+import { taipeiDayKey } from "./time";
 import type { ArchiveIndex, ArchiveMonthSummary, TimelineItem } from "./types";
 
 /** The two timeline kinds that read backwards, and so are served from the archive. */
@@ -87,14 +88,15 @@ export function archiveTotal(index: ArchiveIndex, kind: HistoryKind): number {
 }
 
 /**
- * Which archive month an item belongs to. The worker groups by `substr(iso, 1, 7)`, so
- * this slices the same way — a Taipei-month rule here would disagree with the counts
- * the index publishes.
+ * Which archive month an item belongs to. Month files hold Taipei months, so this must
+ * convert the same way the worker does — otherwise a month cell's count and the rail's
+ * contents disagree. Milestones are calendar dates already; only instants convert.
  */
 export function itemArchiveMonth(item: TimelineItem): string | null {
   if (item.kind === "milestone") return item.milestone.date.slice(0, 7);
   if (item.kind !== "recent") return null;
-  return item.stream.actualEnd?.slice(0, 7) ?? null;
+  const day = item.stream.actualEnd ? taipeiDayKey(item.stream.actualEnd) : "";
+  return day ? day.slice(0, 7) : null;
 }
 
 export function formatArchiveMonth(month: string): string {

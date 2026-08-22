@@ -109,7 +109,8 @@ describe("archiveTotal", () => {
 });
 
 describe("itemArchiveMonth", () => {
-  it("files a finished stream by when it ended, matching how the worker groups months", () => {
+  it("files a finished stream by the Taipei month it ended in, as the worker does", () => {
+    // 20:00Z on the last of April is 04:00 on 1 May in Taipei, and the rail heads it 5/1.
     expect(itemArchiveMonth({
       kind: "recent",
       sortAt: 0,
@@ -117,6 +118,18 @@ describe("itemArchiveMonth", () => {
       stream: {
         videoId: "v", channelId: "c", title: "t", thumbnail: null, url: "u",
         actualEnd: "2025-04-30T20:00:00Z",
+      },
+    })).toBe("2025-05");
+  });
+
+  it("keeps a stream that ended before Taipei midnight in its own month", () => {
+    expect(itemArchiveMonth({
+      kind: "recent",
+      sortAt: 0,
+      channel,
+      stream: {
+        videoId: "v", channelId: "c", title: "t", thumbnail: null, url: "u",
+        actualEnd: "2025-04-30T15:59:59Z",
       },
     })).toBe("2025-04");
   });

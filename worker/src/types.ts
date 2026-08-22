@@ -64,6 +64,8 @@ export interface ArchiveMonthSummary {
 export interface ArchiveIndex {
   version: "1.0.0";
   generated_at: string;
+  /** Timezone the month files are grouped by. Absent on indexes published before UTC+8. */
+  grouping?: "Asia/Taipei";
   months: ArchiveMonthSummary[];
 }
 
