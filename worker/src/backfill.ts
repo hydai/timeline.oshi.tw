@@ -3,7 +3,7 @@ import { uploadsPlaylistId } from "./youtube";
 import type { Env, StreamRecord } from "./types";
 
 export interface BackfillDeps {
-  fetchUploadIds: (playlistId: string) => Promise<string[]>;
+  fetchUploadIds: (playlistId: string) => Promise<{ ids: string[]; truncated: boolean }>;
   fetchVideoDetails: (ids: string[]) => Promise<StreamRecord[]>;
   now: () => string;
 }
@@ -19,6 +19,8 @@ export interface BackfillReport {
   inserted: number;
   quotaUnits: number;
   dryRun: boolean;
+  /** True when the page cap was hit, so this channel has more history than was read. */
+  truncated: boolean;
 }
 
 const PAGE = 50;
@@ -41,7 +43,7 @@ export async function backfillChannel(
   channelId: string,
   options: { dryRun: boolean },
 ): Promise<BackfillReport> {
-  const uploadIds = await deps.fetchUploadIds(uploadsPlaylistId(channelId));
+  const { ids: uploadIds, truncated } = await deps.fetchUploadIds(uploadsPlaylistId(channelId));
   const details = uploadIds.length > 0 ? await deps.fetchVideoDetails(uploadIds) : [];
 
   // actualStart is what separates a broadcast from an ordinary upload.
@@ -61,5 +63,6 @@ export async function backfillChannel(
     inserted: options.dryRun ? 0 : streams.length,
     quotaUnits: units(uploadIds.length) + units(uploadIds.length),
     dryRun: options.dryRun,
+    truncated,
   };
 }

@@ -62,16 +62,20 @@ interface PlaylistItemsResponse {
  * through everything at 1 quota unit per 50 — search.list would be 100 a call.
  *
  * `maxPages` is a hard stop so a single channel with a huge back catalogue cannot
- * consume the day's quota.
+ * consume the day's quota — 200 pages is 10,000 videos, far beyond any real channel,
+ * and still only 200 units. `truncated` reports whether it was hit: a silent cut-off
+ * reads as "this channel only has N videos", which is the wrong conclusion to draw
+ * when judging whether a backfill is complete.
  */
 export async function fetchUploadIds(
   apiKey: string,
   referer: string,
   playlistId: string,
-  maxPages = 40,
-): Promise<string[]> {
+  maxPages = 200,
+): Promise<{ ids: string[]; truncated: boolean }> {
   const ids: string[] = [];
   let pageToken: string | undefined;
+  let truncated = false;
 
   for (let page = 0; page < maxPages; page += 1) {
     const url = new URL(`${YT_API}/playlistItems`);
@@ -91,9 +95,10 @@ export async function fetchUploadIds(
     }
     if (!data.nextPageToken) break;
     pageToken = data.nextPageToken;
+    truncated = page === maxPages - 1;
   }
 
-  return ids;
+  return { ids, truncated };
 }
 
 /** Batch fetch video status. 1 quota unit per 50 ids. Never uses search.list. */

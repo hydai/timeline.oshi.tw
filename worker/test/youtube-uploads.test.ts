@@ -23,7 +23,7 @@ describe("fetchUploadIds", () => {
       .mockResolvedValueOnce(page(["c"]));
     vi.stubGlobal("fetch", fetchMock);
 
-    expect(await fetchUploadIds("key", "ref", "UUx")).toEqual(["a", "b", "c"]);
+    expect(await fetchUploadIds("key", "ref", "UUx")).toEqual({ ids: ["a", "b", "c"], truncated: false });
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
@@ -56,10 +56,32 @@ describe("fetchUploadIds", () => {
     const fetchMock = vi.fn(async (_url: string) => page(["x"], "MORE"));
     vi.stubGlobal("fetch", fetchMock);
 
-    const ids = await fetchUploadIds("key", "ref", "UUx", 3);
+    const result = await fetchUploadIds("key", "ref", "UUx", 3);
 
     expect(fetchMock).toHaveBeenCalledTimes(3);
-    expect(ids).toEqual(["x", "x", "x"]);
+    expect(result.ids).toEqual(["x", "x", "x"]);
+  });
+
+  it("says so when it stopped early, rather than truncating silently", async () => {
+    // Silent truncation reads as "this channel only has N videos", which is exactly
+    // the wrong conclusion to draw when deciding whether a backfill is complete.
+    vi.stubGlobal("fetch", vi.fn(async (_url: string) => page(["x"], "MORE")));
+
+    expect((await fetchUploadIds("key", "ref", "UUx", 2)).truncated).toBe(true);
+  });
+
+  it("reaches far enough that a real channel is not cut off by default", async () => {
+    // 浠Mizuki alone has 1,878 uploads; the old 40-page cap left almost no headroom.
+    let pages = 0;
+    vi.stubGlobal("fetch", vi.fn(async (_url: string) => {
+      pages += 1;
+      return pages < 100 ? page(["x"], "MORE") : page(["x"]);
+    }));
+
+    const result = await fetchUploadIds("key", "ref", "UUx");
+
+    expect(result.truncated).toBe(false);
+    expect(result.ids).toHaveLength(100);
   });
 
   it("throws with the status when YouTube rejects the call", async () => {

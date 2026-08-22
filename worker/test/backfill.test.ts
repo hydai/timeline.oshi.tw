@@ -15,7 +15,7 @@ function vod(videoId: string, actualStart: string | null, actualEnd: string | nu
 
 function deps(over: Partial<BackfillDeps> = {}): BackfillDeps {
   return {
-    fetchUploadIds: async () => ["v1", "v2", "v3"],
+    fetchUploadIds: async () => ({ ids: ["v1", "v2", "v3"], truncated: false }),
     fetchVideoDetails: async () => [
       vod("v1", "2024-01-05T10:00:00Z", "2024-01-05T12:00:00Z"),
       vod("v2", "2023-06-01T10:00:00Z", "2023-06-01T11:00:00Z"),
@@ -50,7 +50,7 @@ describe("backfillChannel", () => {
     const ids = Array.from({ length: 120 }, (_, i) => `v${i}`);
     const report = await backfillChannel(
       env,
-      deps({ fetchUploadIds: async () => ids, fetchVideoDetails: async () => [] }),
+      deps({ fetchUploadIds: async () => ({ ids, truncated: false }), fetchVideoDetails: async () => [] }),
       CHANNEL,
       { dryRun: true },
     );
@@ -80,10 +80,21 @@ describe("backfillChannel", () => {
     expect(await listStreamsByStatus(env.DB, "ended")).toHaveLength(2);
   });
 
+  it("passes truncation through, so a partial backfill is visible", async () => {
+    const report = await backfillChannel(
+      env,
+      deps({ fetchUploadIds: async () => ({ ids: ["v1"], truncated: true }) }),
+      CHANNEL,
+      { dryRun: true },
+    );
+
+    expect(report.truncated).toBe(true);
+  });
+
   it("reports an empty history without falling over", async () => {
     const report = await backfillChannel(
       env,
-      deps({ fetchUploadIds: async () => [], fetchVideoDetails: async () => [] }),
+      deps({ fetchUploadIds: async () => ({ ids: [], truncated: false }), fetchVideoDetails: async () => [] }),
       CHANNEL,
       { dryRun: true },
     );
