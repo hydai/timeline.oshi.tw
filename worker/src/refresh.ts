@@ -3,7 +3,7 @@ import type { TwVtuber } from "./twvtuber";
 import {
   getActiveVideoIds, getStaleChannels, listEnabledChannels, listEndedStreamsSince,
   listMilestonesBetween, listStreamsByStatus, markStreamsUnavailableBatch, setChannelMetasBatch,
-  upsertMilestonesBatch, upsertStreamsBatch,
+  unseenVideoIds, upsertMilestonesBatch, upsertStreamsBatch,
 } from "./db";
 import { applyPrismGroups, readPrismGroups } from "./prism";
 import { derivePermanentMilestones, indexRosterByYoutubeId } from "./twvtuber";
@@ -56,6 +56,22 @@ async function reconcileFetchedStreams(
   }
 }
 
+/**
+ * Every channel's recent uploads, read from the RSS feeds at no YouTube quota. One
+ * channel's feed failing must not cost us the rest of the round.
+ */
+async function feedVideoIds(deps: RefreshDeps, channelIds: string[]): Promise<string[]> {
+  const ids = new Set<string>();
+  for (const channelId of channelIds) {
+    try {
+      for (const id of await deps.fetchRecentVideoIds(channelId)) ids.add(id);
+    } catch (e) {
+      console.warn(`RSS failed for ${channelId}: ${(e as Error).message}`);
+    }
+  }
+  return [...ids];
+}
+
 async function listSnapshotMilestones(db: D1Database, nowMs: number): Promise<Milestone[]> {
   const start = new Date(nowMs - 7 * DAY).toISOString().slice(0, 10);
   const end = new Date(nowMs + 31 * DAY).toISOString().slice(0, 10);
@@ -68,15 +84,11 @@ export async function heavyRefresh(env: Env, deps: RefreshDeps): Promise<Snapsho
   const channels = await listEnabledChannels(env.DB);
   const trackedIds = new Set(channels.map((c) => c.channel_id));
 
-  // 1. Discover candidates: known-active (last 24h) + RSS per channel (0 quota).
+  // 1. Discover candidates: everything that can still change, plus every id the feeds
+  // list. Heavy re-reads the feeds in full, which is also how an edited title or a
+  // replaced thumbnail on an already-finished stream gets picked up.
   const candidates = new Set<string>(await getActiveVideoIds(env.DB, new Date(nowMs - DAY).toISOString()));
-  for (const c of channels) {
-    try {
-      for (const id of await deps.fetchRecentVideoIds(c.channel_id)) candidates.add(id);
-    } catch (e) {
-      console.warn(`RSS failed for ${c.channel_id}: ${(e as Error).message}`);
-    }
-  }
+  for (const id of await feedVideoIds(deps, channels.map((c) => c.channel_id))) candidates.add(id);
 
   // 2. Confirm status via videos.list; upsert those on tracked channels.
   if (candidates.size > 0) {
@@ -139,12 +151,20 @@ export async function lightRefresh(env: Env, deps: RefreshDeps): Promise<Snapsho
   const nowIso = deps.now();
   const nowMs = new Date(nowIso).getTime();
 
-  // Re-check only known-active video ids (cheap; no RSS, no twvtuber).
-  const activeIds = await getActiveVideoIds(env.DB, new Date(nowMs - DAY).toISOString());
-  if (activeIds.length > 0) {
-    const trackedIds = new Set((await listEnabledChannels(env.DB)).map((c) => c.channel_id));
-    const details = await deps.fetchVideoDetails(activeIds);
-    await reconcileFetchedStreams(env.DB, activeIds, details, trackedIds, nowIso);
+  // Re-check what can still change, and chase anything the feeds show that no record
+  // covers — a stream that went up since the last pass. Feed entries we already hold are
+  // left out: they are either in the active set already or finished for good, so this
+  // stays roughly one videos.list call however often it runs. No twvtuber, no channel meta.
+  const channels = await listEnabledChannels(env.DB);
+  const candidates = new Set<string>(await getActiveVideoIds(env.DB, new Date(nowMs - DAY).toISOString()));
+  const fresh = await unseenVideoIds(env.DB, await feedVideoIds(deps, channels.map((c) => c.channel_id)));
+  for (const id of fresh) candidates.add(id);
+
+  if (candidates.size > 0) {
+    const requestedIds = [...candidates];
+    const trackedIds = new Set(channels.map((c) => c.channel_id));
+    const details = await deps.fetchVideoDetails(requestedIds);
+    await reconcileFetchedStreams(env.DB, requestedIds, details, trackedIds, nowIso);
   }
   // Reconstruct roster/heavy-time from the last heavy snapshot.
   const roster: Map<string, RosterEntry> = new Map();
@@ -160,11 +180,10 @@ export async function lightRefresh(env: Env, deps: RefreshDeps): Promise<Snapsho
       twvtuberId: c.twvtuber_id,
     });
   }
-  const rows = await listEnabledChannels(env.DB);
   const streams = await collectCurrentStreams(env.DB, nowMs);
   const milestones = await listSnapshotMilestones(env.DB, nowMs);
   const snapshot = buildSnapshot({
-    channels: rows, streams, roster, milestones,
+    channels, streams, roster, milestones,
     nowIso, heavyRefreshedAtIso: last.heavy_refreshed_at,
   });
   await writeSnapshot(env.DATA_PUBLIC, snapshot);

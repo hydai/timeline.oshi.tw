@@ -1,7 +1,9 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { env } from "cloudflare:test";
 import { upsertChannelId } from "../src/db";
-import { getActiveVideoIds, listStreamsByStatus, markStreamsUnavailableBatch, upsertStream } from "../src/db";
+import {
+  getActiveVideoIds, listStreamsByStatus, markStreamsUnavailableBatch, unseenVideoIds, upsertStream,
+} from "../src/db";
 import type { StreamRecord } from "../src/types";
 
 const base: StreamRecord = {
@@ -55,6 +57,28 @@ describe("streams db", () => {
     }, "2026-07-21T00:05:00Z");
 
     expect(await getActiveVideoIds(env.DB, "2026-07-20T00:00:00Z")).not.toContain("old");
+  });
+
+  it("unseenVideoIds keeps only the ids no usable record covers", async () => {
+    await upsertStream(env.DB, base, "2026-07-21T00:05:00Z");
+    await upsertStream(env.DB, { ...base, videoId: "gone" }, "2026-07-21T00:05:00Z");
+    await markStreamsUnavailableBatch(env.DB, ["gone"], "2026-07-21T00:06:00Z");
+
+    // "gone" is tombstoned, so it is worth asking about again in case it came back.
+    expect(await unseenVideoIds(env.DB, ["v1", "gone", "fresh"])).toEqual(["gone", "fresh"]);
+  });
+
+  it("unseenVideoIds asks nothing when given nothing", async () => {
+    expect(await unseenVideoIds(env.DB, [])).toEqual([]);
+  });
+
+  it("unseenVideoIds handles more ids than fit in one bound-parameter batch", async () => {
+    await upsertStream(env.DB, { ...base, videoId: "v120" }, "2026-07-21T00:05:00Z");
+
+    const unseen = await unseenVideoIds(env.DB, Array.from({ length: 150 }, (_, i) => `v${i}`));
+
+    expect(unseen).toHaveLength(149);
+    expect(unseen).not.toContain("v120");
   });
 
   it("keeps old ended streams permanently", async () => {

@@ -7,7 +7,7 @@ import { fetchRoster } from "./twvtuber";
 
 export function routeCron(cron: string): "heavy" | "light" | "none" {
   if (cron === "0 0,6,12,18 * * *") return "heavy";
-  if (cron === "*/30 * * * *") return "light";
+  if (cron === "*/5 * * * *") return "light";
   return "none";
 }
 

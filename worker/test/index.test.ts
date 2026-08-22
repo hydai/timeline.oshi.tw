@@ -4,7 +4,7 @@ import type { Env } from "../src/types";
 
 describe("routeCron", () => {
   it("maps the heavy cron", () => expect(routeCron("0 0,6,12,18 * * *")).toBe("heavy"));
-  it("maps the light cron", () => expect(routeCron("*/30 * * * *")).toBe("light"));
+  it("maps the light cron", () => expect(routeCron("*/5 * * * *")).toBe("light"));
   it("ignores unknown crons", () => expect(routeCron("0 3 * * *")).toBe("none"));
 });
 

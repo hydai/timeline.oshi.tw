@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { env } from "cloudflare:test";
-import { listStreamsByStatus, upsertChannelId, upsertMilestonesBatch, upsertStream } from "../src/db";
+import {
+  listStreamsByStatus, markStreamsUnavailableBatch, upsertChannelId, upsertMilestonesBatch, upsertStream,
+} from "../src/db";
 import { lightRefresh, type RefreshDeps } from "../src/refresh";
 import { writeSnapshot } from "../src/r2";
 import type { Snapshot, StreamRecord } from "../src/types";
@@ -52,10 +54,66 @@ describe("lightRefresh", () => {
     expect(snap!.milestones.length).toBe(1);
     expect(snap!.heavy_refreshed_at).toBe("2026-07-21T00:00:00Z");
     expect(snap!.generated_at).toBe("2026-07-21T01:10:00Z");
-    // The light path must never call RSS or twvtuber deps — only fetchVideoDetails.
-    expect(d.fetchRecentVideoIds).not.toHaveBeenCalled();
+    // The light path reads the channel feeds, but never the twvtuber/channel deps.
     expect(d.fetchChannelMeta).not.toHaveBeenCalled();
     expect(d.fetchRoster).not.toHaveBeenCalled();
+  });
+
+  it("picks up a stream the feeds show that we have never seen", async () => {
+    // Without this a stream that goes up between heavy refreshes waits as long as six
+    // hours to appear, however often the light pass runs.
+    const d = deps({
+      fetchRecentVideoIds: vi.fn(async () => ["NEW"]),
+      fetchVideoDetails: vi.fn(async () => [
+        { ...upcomingRec, status: "live" as const, actualStart: "2026-07-21T01:05:00Z" },
+        {
+          ...upcomingRec, videoId: "NEW", status: "live" as const,
+          scheduledStart: null, actualStart: "2026-07-21T01:08:00Z",
+        },
+      ]),
+    });
+
+    const snap = await lightRefresh(env, d);
+
+    expect(snap!.live.map((s) => s.videoId).sort()).toEqual(["NEW", "U"]);
+    expect(d.fetchRecentVideoIds).toHaveBeenCalled();
+  });
+
+  it("does not re-ask about a feed entry it already holds", async () => {
+    // A finished upload we stored months ago cannot change, and one that still can is
+    // already in the active set — asking again just spends quota.
+    await upsertStream(env.DB, {
+      ...upcomingRec, videoId: "OLD", status: "ended", scheduledStart: null,
+      actualStart: "2026-05-01T10:00:00Z", actualEnd: "2026-05-01T12:00:00Z",
+    }, "2026-05-01T12:05:00Z");
+    const fetchVideoDetails = vi.fn(async (_ids: string[]) => [
+      { ...upcomingRec, status: "live" as const, actualStart: "2026-07-21T01:05:00Z" },
+    ]);
+
+    await lightRefresh(env, deps({
+      fetchRecentVideoIds: vi.fn(async () => ["OLD"]),
+      fetchVideoDetails,
+    }));
+
+    expect(fetchVideoDetails.mock.calls[0]![0]).not.toContain("OLD");
+  });
+
+  it("asks again about a tombstoned feed entry, in case it is back", async () => {
+    await upsertStream(env.DB, {
+      ...upcomingRec, videoId: "GONE", status: "ended", scheduledStart: null,
+      actualStart: "2026-05-01T10:00:00Z", actualEnd: "2026-05-01T12:00:00Z",
+    }, "2026-05-01T12:05:00Z");
+    await markStreamsUnavailableBatch(env.DB, ["GONE"], "2026-05-02T00:00:00Z");
+    const fetchVideoDetails = vi.fn(async (_ids: string[]) => [
+      { ...upcomingRec, status: "live" as const, actualStart: "2026-07-21T01:05:00Z" },
+    ]);
+
+    await lightRefresh(env, deps({
+      fetchRecentVideoIds: vi.fn(async () => ["GONE"]),
+      fetchVideoDetails,
+    }));
+
+    expect(fetchVideoDetails.mock.calls[0]![0]).toContain("GONE");
   });
 
   it("removes a known active stream omitted from a successful YouTube response", async () => {

@@ -147,6 +147,27 @@ export async function getActiveVideoIds(db: D1Database, sinceIso: string): Promi
   return results.map((r) => r.video_id);
 }
 
+/**
+ * Of the given ids, the ones no usable record covers: never stored, or tombstoned and
+ * possibly back. Anything else is either already in the active set or finished for good,
+ * so asking YouTube about it again only spends quota.
+ */
+export async function unseenVideoIds(db: D1Database, ids: string[]): Promise<string[]> {
+  if (ids.length === 0) return [];
+  const covered = new Set<string>();
+  for (let i = 0; i < ids.length; i += BATCH_CHUNK_SIZE) {
+    const chunk = ids.slice(i, i + BATCH_CHUNK_SIZE);
+    const holes = chunk.map((_, n) => `?${n + 1}`).join(",");
+    const { results } = await db
+      .prepare(`SELECT video_id FROM streams
+        WHERE availability = 'available' AND video_id IN (${holes})`)
+      .bind(...chunk)
+      .all<{ video_id: string }>();
+    for (const row of results) covered.add(row.video_id);
+  }
+  return ids.filter((id) => !covered.has(id));
+}
+
 export async function listStreamsByStatus(db: D1Database, status: StreamStatus): Promise<StreamRecord[]> {
   const { results } = await db
     .prepare(`SELECT * FROM streams WHERE status = ?1 AND availability = 'available'`)
