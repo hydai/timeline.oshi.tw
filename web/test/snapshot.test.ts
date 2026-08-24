@@ -53,4 +53,38 @@ describe("fetchSnapshot", () => {
     expect(month.streams).toHaveLength(1);
     expect(month.milestones).toEqual([]);
   });
+
+  it("keeps valid per-channel archive facets", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
+      version: "1.0.0",
+      generated_at: "2026-08-24T00:00:00Z",
+      facets: "channel",
+      months: [{
+        month: "2026-08",
+        streams: 3,
+        milestones: 1,
+        by_channel: { A: { streams: 3, milestones: 1 } },
+      }],
+    }), { status: 200 })));
+
+    expect(await fetchArchiveIndex("/archive/index.json")).toMatchObject({
+      facets: "channel",
+      months: [{ by_channel: { A: { streams: 3, milestones: 1 } } }],
+    });
+  });
+
+  it("drops the facet marker when channel counts do not add up to the global total", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
+      version: "1.0.0",
+      facets: "channel",
+      months: [{
+        month: "2026-08",
+        streams: 3,
+        milestones: 0,
+        by_channel: { A: { streams: 2, milestones: 0 } },
+      }],
+    }), { status: 200 })));
+
+    expect((await fetchArchiveIndex("/archive/index.json")).facets).toBeUndefined();
+  });
 });

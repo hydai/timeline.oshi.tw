@@ -1,5 +1,8 @@
 import { taipeiDayKey } from "./time";
-import type { ArchiveIndex, ArchiveMonthSummary, Milestone, TimelineItem } from "./types";
+import { UNGROUPED_FILTER_VALUE, type GroupFilterValue } from "./filter";
+import type {
+  ArchiveIndex, ArchiveMonthSummary, Milestone, SnapshotChannel, TimelineItem,
+} from "./types";
 
 /** The two timeline kinds that read backwards, and so are served from the archive. */
 export type HistoryKind = "recent" | "milestone";
@@ -51,22 +54,84 @@ export function withPendingMilestones(
   milestones: Milestone[],
   cutoff: string,
 ): ArchiveIndex {
-  const pending = new Map<string, number>();
+  const pending = new Map<string, Map<string, number>>();
   for (const milestone of milestones) {
     if (milestone.date <= cutoff) continue;
     const month = milestone.date.slice(0, 7);
-    pending.set(month, (pending.get(month) ?? 0) + 1);
+    const channels = pending.get(month) ?? new Map<string, number>();
+    channels.set(milestone.channelId, (channels.get(milestone.channelId) ?? 0) + 1);
+    pending.set(month, channels);
   }
   if (pending.size === 0) return index;
 
   const months = index.months.map((summary) => {
-    const extra = pending.get(summary.month);
-    if (!extra) return summary;
+    const extraByChannel = pending.get(summary.month);
+    if (!extraByChannel) return summary;
     pending.delete(summary.month);
-    return { ...summary, milestones: summary.milestones + extra };
+    const byChannel = { ...(summary.by_channel ?? {}) };
+    let extra = 0;
+    for (const [channelId, count] of extraByChannel) {
+      const current = byChannel[channelId] ?? { streams: 0, milestones: 0 };
+      byChannel[channelId] = { ...current, milestones: current.milestones + count };
+      extra += count;
+    }
+    return { ...summary, milestones: summary.milestones + extra, by_channel: byChannel };
   });
-  for (const [month, count] of pending) months.push({ month, streams: 0, milestones: count });
+  for (const [month, extraByChannel] of pending) {
+    const byChannel: NonNullable<ArchiveMonthSummary["by_channel"]> = {};
+    let milestones = 0;
+    for (const [channelId, count] of extraByChannel) {
+      byChannel[channelId] = { streams: 0, milestones: count };
+      milestones += count;
+    }
+    months.push({ month, streams: 0, milestones, by_channel: byChannel });
+  }
   return { ...index, months: months.sort((left, right) => right.month.localeCompare(left.month)) };
+}
+
+/** Apply all channel-level filters to the archive's month totals. */
+export function filterArchiveIndex(
+  index: ArchiveIndex,
+  channels: Record<string, SnapshotChannel>,
+  query: string,
+  selectedChannelId: string | null,
+  selectedGroup: GroupFilterValue,
+): ArchiveIndex {
+  const q = query.trim().toLowerCase();
+  if (!q && !selectedChannelId && !selectedGroup) return index;
+
+  const hasCompleteFacets = index.facets === "channel";
+  const months = index.months.map((summary) => {
+    let streams = 0;
+    let milestones = 0;
+    const byChannel: NonNullable<ArchiveMonthSummary["by_channel"]> = {};
+
+    if (hasCompleteFacets) {
+      for (const [channelId, counts] of Object.entries(summary.by_channel ?? {})) {
+        const channel = channels[channelId];
+        if (selectedChannelId && channelId !== selectedChannelId) continue;
+        if (q) {
+          if (!channel) continue;
+          const name = (channel.name ?? "").toLowerCase();
+          const handle = (channel.handle ?? "").toLowerCase();
+          if (!name.includes(q) && !handle.includes(q)) continue;
+        }
+        if (selectedGroup) {
+          if (!channel) continue;
+          const group = channel.group?.trim() || null;
+          if (selectedGroup === UNGROUPED_FILTER_VALUE ? group !== null : group !== selectedGroup) {
+            continue;
+          }
+        }
+        byChannel[channelId] = counts;
+        streams += counts.streams;
+        milestones += counts.milestones;
+      }
+    }
+
+    return { ...summary, streams, milestones, by_channel: byChannel };
+  });
+  return { ...index, months };
 }
 
 /** Oldest first — the year row reads left to right like a timeline. */

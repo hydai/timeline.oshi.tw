@@ -127,13 +127,20 @@ describe("lightRefresh", () => {
       version: "1.0.0",
       generated_at: "2026-07-20T00:00:00Z",
       grouping: "Asia/Taipei",
-      months: [{ month: "2026-05", streams: 99, milestones: 0 }],
+      facets: "channel",
+      months: [{
+        month: "2026-05", streams: 99, milestones: 0,
+        by_channel: { UCaaa: { streams: 99, milestones: 0 } },
+      }],
     });
 
     await lightRefresh(env, deps());
 
     expect((await readArchiveIndex(env.DATA_PUBLIC))!.months)
-      .toContainEqual({ month: "2026-05", streams: 99, milestones: 0 });
+      .toContainEqual({
+        month: "2026-05", streams: 99, milestones: 0,
+        by_channel: { UCaaa: { streams: 99, milestones: 0 } },
+      });
   });
 
   it("removes a known active stream omitted from a successful YouTube response", async () => {

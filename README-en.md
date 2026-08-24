@@ -116,7 +116,7 @@ Current state uses a lightweight snapshot (see the `Snapshot` type in [`worker/s
 
 The `SnapshotStream` time fields (`actualStart` / `scheduledStart` / `actualEnd` / `concurrentViewers`) are optional and omitted when null.
 
-Permanent history is indexed by `streams/v1/archive/index.json`. Each `streams/v1/archive/YYYY-MM.json` contains that month's `channels`, completed `streams`, and `milestones`; the browser fetches month files only when a historical filter is active.
+Permanent history is indexed by `streams/v1/archive/index.json`. An index marked with `facets: "channel"` also provides per-channel stream and milestone totals in each month's `by_channel`, keeping type, year, and month counts consistent after filtering. Each `streams/v1/archive/YYYY-MM.json` contains that month's `channels`, completed `streams`, and `milestones`; the browser fetches month files only when a historical filter is active.
 
 ## Project structure
 

@@ -54,7 +54,13 @@ describe("publishArchive", () => {
 
     const index = await publishArchive(env.DB, env.DATA_PUBLIC, roster, "2026-07-21T00:00:00Z");
 
-    expect(index.months).toEqual([{ month: "2024-03", streams: 1, milestones: 1 }]);
+    expect(index.facets).toBe("channel");
+    expect(index.months).toEqual([{
+      month: "2024-03",
+      streams: 1,
+      milestones: 1,
+      by_channel: { UCaaa: { streams: 1, milestones: 1 } },
+    }]);
     expect(await readArchiveIndex(env.DATA_PUBLIC)).toEqual(index);
     const archived = await (await env.DATA_PUBLIC.get(archiveMonthKey("2024-03")))!.json<ArchiveMonth>();
     expect(archived.streams.map((stream) => stream.videoId)).toEqual(["history-1"]);
@@ -88,10 +94,16 @@ describe("publishArchive", () => {
   });
 
   describe("current-month scope", () => {
-    const taipeiIndex = (months: { month: string; streams: number; milestones: number }[]) => ({
+    const taipeiIndex = (months: {
+      month: string;
+      streams: number;
+      milestones: number;
+      by_channel?: Record<string, { streams: number; milestones: number }>;
+    }[]) => ({
       version: "1.0.0" as const,
       generated_at: "2026-07-20T00:00:00Z",
       grouping: "Asia/Taipei" as const,
+      facets: "channel" as const,
       months,
     });
 
@@ -99,13 +111,19 @@ describe("publishArchive", () => {
       // The count below is deliberately wrong. If the cheap pass still aggregates the
       // archive it will correct it — which is exactly the work we are trying to skip.
       await upsertStream(env.DB, historicalStream, "2024-03-01T11:05:00Z");
-      await writeArchiveIndex(env.DATA_PUBLIC, taipeiIndex([{ month: "2024-03", streams: 99, milestones: 0 }]));
+      await writeArchiveIndex(env.DATA_PUBLIC, taipeiIndex([{
+        month: "2024-03", streams: 99, milestones: 0,
+        by_channel: { UCaaa: { streams: 99, milestones: 0 } },
+      }]));
 
       const index = await publishArchive(
         env.DB, env.DATA_PUBLIC, new Map(), "2026-07-21T00:00:00Z", "current-month",
       );
 
-      expect(index.months).toEqual([{ month: "2024-03", streams: 99, milestones: 0 }]);
+      expect(index.months).toEqual([{
+        month: "2024-03", streams: 99, milestones: 0,
+        by_channel: { UCaaa: { streams: 99, milestones: 0 } },
+      }]);
       expect(await env.DATA_PUBLIC.get(archiveMonthKey("2024-03"))).toBeNull();
     });
 
@@ -120,14 +138,20 @@ describe("publishArchive", () => {
         env.DB, env.DATA_PUBLIC, new Map(), "2026-07-21T00:00:00Z", "current-month",
       );
 
-      expect(index.months).toEqual([{ month: "2026-07", streams: 1, milestones: 0 }]);
+      expect(index.months).toEqual([{
+        month: "2026-07", streams: 1, milestones: 0,
+        by_channel: { UCaaa: { streams: 1, milestones: 0 } },
+      }]);
       const archived = await (await env.DATA_PUBLIC.get(archiveMonthKey("2026-07")))!.json<ArchiveMonth>();
       expect(archived.streams.map((stream) => stream.videoId)).toEqual(["tonight"]);
     });
 
     it("invents no row for a current month with nothing in it yet", async () => {
       await upsertStream(env.DB, historicalStream, "2024-03-01T11:05:00Z");
-      await writeArchiveIndex(env.DATA_PUBLIC, taipeiIndex([{ month: "2024-03", streams: 1, milestones: 0 }]));
+      await writeArchiveIndex(env.DATA_PUBLIC, taipeiIndex([{
+        month: "2024-03", streams: 1, milestones: 0,
+        by_channel: { UCaaa: { streams: 1, milestones: 0 } },
+      }]));
 
       const index = await publishArchive(
         env.DB, env.DATA_PUBLIC, new Map(), "2026-07-21T00:00:00Z", "current-month",
@@ -143,7 +167,10 @@ describe("publishArchive", () => {
         env.DB, env.DATA_PUBLIC, new Map(), "2026-07-21T00:00:00Z", "current-month",
       );
 
-      expect(index.months).toEqual([{ month: "2024-03", streams: 1, milestones: 0 }]);
+      expect(index.months).toEqual([{
+        month: "2024-03", streams: 1, milestones: 0,
+        by_channel: { UCaaa: { streams: 1, milestones: 0 } },
+      }]);
       expect(await env.DATA_PUBLIC.get(archiveMonthKey("2024-03"))).not.toBeNull();
     });
 
@@ -159,8 +186,29 @@ describe("publishArchive", () => {
         env.DB, env.DATA_PUBLIC, new Map(), "2026-07-21T00:00:00Z", "current-month",
       );
 
-      expect(index.months).toEqual([{ month: "2024-03", streams: 1, milestones: 0 }]);
+      expect(index.months).toEqual([{
+        month: "2024-03", streams: 1, milestones: 0,
+        by_channel: { UCaaa: { streams: 1, milestones: 0 } },
+      }]);
       expect(await env.DATA_PUBLIC.get(archiveMonthKey("2024-03"))).not.toBeNull();
+    });
+
+    it("adds missing channel facets without rewriting unchanged settled month files", async () => {
+      await upsertStream(env.DB, historicalStream, "2024-03-01T11:05:00Z");
+      await writeArchiveIndex(env.DATA_PUBLIC, {
+        version: "1.0.0",
+        generated_at: "2026-07-20T00:00:00Z",
+        grouping: "Asia/Taipei",
+        months: [{ month: "2024-03", streams: 1, milestones: 0 }],
+      });
+
+      const index = await publishArchive(
+        env.DB, env.DATA_PUBLIC, new Map(), "2026-07-21T00:00:00Z", "current-month",
+      );
+
+      expect(index.facets).toBe("channel");
+      expect(index.months[0]?.by_channel).toEqual({ UCaaa: { streams: 1, milestones: 0 } });
+      expect(await env.DATA_PUBLIC.get(archiveMonthKey("2024-03"))).toBeNull();
     });
   });
 

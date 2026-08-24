@@ -10,6 +10,7 @@ import type {
 } from "./types";
 
 const GROUPING = "Asia/Taipei";
+const FACETS = "channel";
 
 /**
  * "full" recounts every month from D1. "current-month" trusts the published index for
@@ -41,13 +42,17 @@ export async function publishArchive(
   const previous = await readArchiveIndex(bucket);
   const currentMonth = taipeiMonth(nowIso);
   // Moving a month boundary shuffles streams between files without necessarily changing
-  // any count, which is all countsMatch can see — so a grouping change rewrites the lot.
+  // any global count, so a grouping change rewrites month payloads. A facet-schema change
+  // only needs a full recount for the index; unchanged month payloads remain valid.
+  const previousFacetsComplete = previous?.facets === FACETS &&
+    previous.months.every((summary) => summary.by_channel != null);
   const regrouped = previous?.grouping !== GROUPING;
+  const reindexed = regrouped || !previousFacetsComplete;
   // Aggregating every archived stream to rediscover that only the current month moved is
   // most of what this costs, and the light pass runs it every five minutes. The cheap
   // scope skips it, at the price of not seeing a settled month change behind it — a
   // video going private drops a row from an old month — which the next full pass fixes.
-  const months = scope === "full" || previous == null || regrouped
+  const months = scope === "full" || previous == null || reindexed
     ? await listArchiveMonthSummaries(db, nowIso)
     : withCurrentMonth(previous.months, await getArchiveMonthSummary(db, currentMonth, nowIso));
   const previousByMonth = new Map((previous?.months ?? []).map((summary) => [summary.month, summary]));
@@ -83,7 +88,13 @@ export async function publishArchive(
     }
   }
 
-  const index: ArchiveIndex = { version: "1.0.0", generated_at: nowIso, grouping: GROUPING, months };
+  const index: ArchiveIndex = {
+    version: "1.0.0",
+    generated_at: nowIso,
+    grouping: GROUPING,
+    facets: FACETS,
+    months,
+  };
   await writeArchiveIndex(bucket, index);
   return index;
 }

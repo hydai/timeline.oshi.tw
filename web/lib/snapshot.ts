@@ -35,17 +35,52 @@ export function archiveMonthUrl(indexUrl: string, month: string): string {
 
 export async function fetchArchiveIndex(url: string): Promise<ArchiveIndex> {
   const raw = (await fetchJson(url)) as Partial<ArchiveIndex>;
-  const months = Array.isArray(raw.months)
-    ? raw.months.filter((month) =>
-      month != null &&
-      /^\d{4}-(0[1-9]|1[0-2])$/.test(month.month) &&
-      Number.isInteger(month.streams) && month.streams >= 0 &&
-      Number.isInteger(month.milestones) && month.milestones >= 0,
-    )
-    : [];
+  let facetsComplete = raw.facets === "channel";
+  const months: ArchiveIndex["months"] = [];
+  for (const month of Array.isArray(raw.months) ? raw.months : []) {
+    if (
+      month == null ||
+      !/^\d{4}-(0[1-9]|1[0-2])$/.test(month.month) ||
+      !Number.isInteger(month.streams) || month.streams < 0 ||
+      !Number.isInteger(month.milestones) || month.milestones < 0
+    ) continue;
+
+    const byChannel: NonNullable<(typeof month)["by_channel"]> = {};
+    let channelStreams = 0;
+    let channelMilestones = 0;
+    if (raw.facets === "channel") {
+      if (!month.by_channel || typeof month.by_channel !== "object" || Array.isArray(month.by_channel)) {
+        facetsComplete = false;
+      } else {
+        for (const [channelId, counts] of Object.entries(month.by_channel)) {
+          if (
+            !channelId || counts == null ||
+            !Number.isInteger(counts.streams) || counts.streams < 0 ||
+            !Number.isInteger(counts.milestones) || counts.milestones < 0
+          ) {
+            facetsComplete = false;
+            continue;
+          }
+          byChannel[channelId] = { streams: counts.streams, milestones: counts.milestones };
+          channelStreams += counts.streams;
+          channelMilestones += counts.milestones;
+        }
+        if (channelStreams !== month.streams || channelMilestones !== month.milestones) {
+          facetsComplete = false;
+        }
+      }
+    }
+    months.push({
+      month: month.month,
+      streams: month.streams,
+      milestones: month.milestones,
+      ...(raw.facets === "channel" ? { by_channel: byChannel } : {}),
+    });
+  }
   return {
     version: (raw.version ?? "1.0.0") as "1.0.0",
     generated_at: raw.generated_at ?? "",
+    ...(facetsComplete ? { facets: "channel" as const } : {}),
     months: months.sort((left, right) => right.month.localeCompare(left.month)),
   };
 }

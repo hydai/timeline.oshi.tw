@@ -59,7 +59,12 @@ describe("permanent history db", () => {
     ], "2026-07-21T00:00:00Z");
 
     expect(await listArchiveMonthSummaries(env.DB, "2026-07-21T00:00:00Z")).toEqual([
-      { month: "2024-03", streams: 1, milestones: 1 },
+      {
+        month: "2024-03",
+        streams: 1,
+        milestones: 1,
+        by_channel: { UCaaa: { streams: 1, milestones: 1 } },
+      },
     ]);
     expect((await listEndedStreamsByMonth(env.DB, "2024-03", "2026-07-21T00:00:00Z"))[0]!.videoId).toBe("old-stream");
     expect(await listMilestonesByMonth(env.DB, "2024-03", "2026-07-21")).toEqual([
@@ -89,8 +94,14 @@ describe("permanent history db", () => {
     );
 
     expect(await listArchiveMonthSummaries(env.DB, "2026-07-21T00:00:00Z")).toEqual([
-      { month: "2025-05", streams: 1, milestones: 1 },
-      { month: "2025-04", streams: 1, milestones: 0 },
+      {
+        month: "2025-05", streams: 1, milestones: 1,
+        by_channel: { UCaaa: { streams: 1, milestones: 1 } },
+      },
+      {
+        month: "2025-04", streams: 1, milestones: 0,
+        by_channel: { UCaaa: { streams: 1, milestones: 0 } },
+      },
     ]);
     expect((await listEndedStreamsByMonth(env.DB, "2025-05", "2026-07-21T00:00:00Z"))
       .map((stream) => stream.videoId)).toEqual(["after-midnight"]);
@@ -109,7 +120,10 @@ describe("permanent history db", () => {
     ], "2026-07-21T00:00:00Z");
 
     expect(await getArchiveMonthSummary(env.DB, "2024-03", "2026-07-21T00:00:00Z")).toEqual({
-      month: "2024-03", streams: 1, milestones: 1,
+      month: "2024-03",
+      streams: 1,
+      milestones: 1,
+      by_channel: { UCaaa: { streams: 1, milestones: 1 } },
     });
   });
 
@@ -126,6 +140,7 @@ describe("permanent history db", () => {
     expect((await getArchiveMonthSummary(env.DB, "2024-03", "2026-07-21T00:00:00Z")).streams).toBe(0);
     expect(await getArchiveMonthSummary(env.DB, "2024-04", "2024-04-10T00:00:00Z")).toEqual({
       month: "2024-04", streams: 1, milestones: 0, // "not-yet" is past the cutoff
+      by_channel: { UCaaa: { streams: 1, milestones: 0 } },
     });
   });
 

@@ -260,14 +260,20 @@ describe("Home page", () => {
     expect(screen.getByText(`週年 · ${FUTURE_MILESTONE_DATE}`)).toBeInTheDocument();
   });
 
-  const archiveMonth = (month: string, videoId: string, title: string, actualEnd: string) => ({
+  const archiveMonth = (
+    month: string,
+    videoId: string,
+    title: string,
+    actualEnd: string,
+    channelId = "channel-mizuki",
+  ) => ({
     version: "1.0.0",
     generated_at: "2026-07-21T19:00:00Z",
     month,
     channels: typeFilterFixture.channels,
     streams: [{
       videoId,
-      channelId: "channel-mizuki",
+      channelId,
       title,
       thumbnail: null,
       url: `https://example.com/${videoId}`,
@@ -284,9 +290,16 @@ describe("Home page", () => {
         return new Response(JSON.stringify({
           version: "1.0.0",
           generated_at: "2026-07-21T19:00:00Z",
+          facets: "channel",
           months: [
-            { month: "2026-07", streams: 1, milestones: 0 },
-            { month: "2026-06", streams: 1, milestones: 0 },
+            {
+              month: "2026-07", streams: 1, milestones: 0,
+              by_channel: { "channel-mizuki": { streams: 1, milestones: 0 } },
+            },
+            {
+              month: "2026-06", streams: 1, milestones: 0,
+              by_channel: { "channel-gabu": { streams: 1, milestones: 0 } },
+            },
           ],
         }), { status: 200 });
       }
@@ -297,7 +310,7 @@ describe("Home page", () => {
       }
       if (url.endsWith("/archive/2026-06.json")) {
         return new Response(JSON.stringify(archiveMonth(
-          "2026-06", "archive-june", "六月封存直播", "2026-06-10T10:00:00Z",
+          "2026-06", "archive-june", "六月封存直播", "2026-06-10T10:00:00Z", "channel-gabu",
         )), { status: 200 });
       }
       return new Response(JSON.stringify(typeFilterFixture), { status: 200 });
@@ -320,6 +333,26 @@ describe("Home page", () => {
     expect(screen.getByRole("button", { name: "2026 年 7 月" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.queryByText("六月封存直播")).not.toBeInTheDocument();
     expect(monthRequests(fetchMock, "2026-06")).toBe(0);
+  });
+
+  it("scopes type badges and archive month totals to the selected VTuber", async () => {
+    stubArchive();
+    render(<Home />);
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "VTuber 篩選" })).toBeInTheDocument());
+    await userEvent.click(screen.getByRole("button", { name: "VTuber 篩選" }));
+    await userEvent.click(screen.getByRole("button", { name: "水樹" }));
+
+    expect(screen.getByRole("button", { name: "正在直播" })).toHaveTextContent("1");
+    expect(screen.getByRole("button", { name: "預定直播" })).toHaveTextContent("0");
+    expect(screen.getByRole("button", { name: "已完成直播" })).toHaveTextContent("1");
+    expect(screen.getByRole("button", { name: "重要里程碑" })).toHaveTextContent("0");
+
+    await userEvent.click(screen.getByRole("button", { name: "已完成直播" }));
+
+    await waitFor(() => expect(screen.getByText(/^共 1 場/)).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "2026 年 7 月" })).toHaveTextContent("1 場");
+    expect(screen.getByRole("button", { name: "2026 年 6 月" })).toBeDisabled();
   });
 
   it("shows the chosen month alone, so the rail never grows past one month", async () => {

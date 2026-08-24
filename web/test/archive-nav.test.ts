@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   archiveTotal, archiveYearMonths, archiveYears, formatArchiveMonth, itemArchiveMonth,
-  latestArchiveMonth, stepArchiveMonth, withPendingMilestones,
+  filterArchiveIndex, latestArchiveMonth, stepArchiveMonth, withPendingMilestones,
 } from "@/lib/archive-nav";
 import type { ArchiveIndex, Milestone, SnapshotChannel } from "@/lib/types";
 
@@ -108,6 +108,58 @@ describe("archiveTotal", () => {
   });
 });
 
+describe("filterArchiveIndex", () => {
+  const faceted: ArchiveIndex = {
+    ...index,
+    facets: "channel",
+    months: [
+      {
+        month: "2026-08",
+        streams: 5,
+        milestones: 1,
+        by_channel: {
+          mizuki: { streams: 2, milestones: 1 },
+          gabu: { streams: 3, milestones: 0 },
+        },
+      },
+      {
+        month: "2026-07",
+        streams: 4,
+        milestones: 2,
+        by_channel: {
+          mizuki: { streams: 1, milestones: 0 },
+          gabu: { streams: 3, milestones: 2 },
+        },
+      },
+    ],
+  };
+  const channels = {
+    mizuki: channel,
+    gabu: { ...channel, name: "Gabu", handle: "@gabu", group: null },
+  };
+
+  it("scopes every month to the selected channel instead of keeping global totals", () => {
+    const filtered = filterArchiveIndex(faceted, channels, "", "mizuki", null);
+
+    expect(filtered.months).toEqual([
+      expect.objectContaining({ month: "2026-08", streams: 2, milestones: 1 }),
+      expect.objectContaining({ month: "2026-07", streams: 1, milestones: 0 }),
+    ]);
+    expect(archiveTotal(filtered, "recent")).toBe(3);
+  });
+
+  it("applies search and group filters to archive counts", () => {
+    expect(archiveTotal(filterArchiveIndex(faceted, channels, "gab", null, null), "recent")).toBe(6);
+    expect(archiveTotal(filterArchiveIndex(faceted, channels, "", null, "子午計畫"), "milestone")).toBe(1);
+  });
+
+  it("does not present unfilterable legacy totals as filtered results", () => {
+    const legacy = { ...faceted, facets: undefined };
+
+    expect(archiveTotal(filterArchiveIndex(legacy, channels, "", "mizuki", null), "recent")).toBe(0);
+  });
+});
+
 describe("withPendingMilestones", () => {
   // The archive only carries milestones that have already passed, but the rail also
   // shows the ones coming up — they ride in on the current snapshot. Counted or not,
@@ -123,6 +175,7 @@ describe("withPendingMilestones", () => {
 
     expect(months.find((month) => month.month === "2026-08")).toEqual({
       month: "2026-08", streams: 266, milestones: 1,
+      by_channel: { c: { streams: 0, milestones: 1 } },
     });
   });
 
@@ -135,7 +188,12 @@ describe("withPendingMilestones", () => {
   it("opens a month the archive has no row for at all", () => {
     const months = withPendingMilestones(index, pending, "2026-08-22").months;
 
-    expect(months[0]).toEqual({ month: "2026-09", streams: 0, milestones: 1 });
+    expect(months[0]).toEqual({
+      month: "2026-09",
+      streams: 0,
+      milestones: 1,
+      by_channel: { c: { streams: 0, milestones: 1 } },
+    });
   });
 
   it("never touches the stream counts", () => {

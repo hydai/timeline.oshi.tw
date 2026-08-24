@@ -5,13 +5,11 @@ import {
 } from "@/lib/snapshot";
 import { buildArchiveTimeline, buildTimeline, mergeTimelines } from "@/lib/timeline";
 import {
-  archiveTotal, formatArchiveMonth, itemArchiveMonth, latestArchiveMonth, stepArchiveMonth,
-  withPendingMilestones,
+  archiveTotal, filterArchiveIndex, formatArchiveMonth, itemArchiveMonth, latestArchiveMonth,
+  stepArchiveMonth, withPendingMilestones,
 } from "@/lib/archive-nav";
 import {
-  buildGroupFilterOptions,
-  buildTimelineKindCounts,
-  buildVTuberFilterOptions,
+  buildTimelineFilterStats,
   filterTimeline,
   type GroupFilterValue,
   type TimelineKind,
@@ -75,7 +73,7 @@ export default function Home() {
 
   // A month full of streams can hold no milestones at all, so a pick made under one
   // kind is not a pick under the other.
-  useEffect(() => { setPickedMonth(null); }, [historyKind]);
+  useEffect(() => { setPickedMonth(null); }, [historyKind, query, selectedChannelId, selectedGroup]);
 
   // What the navigator counts: the archive plus the milestones still ahead of it, which
   // reach the rail on the snapshot. Fetching still goes by archiveIndex — a month that
@@ -84,10 +82,25 @@ export default function Home() {
     ? withPendingMilestones(archiveIndex, snap.milestones, archiveIndex.generated_at.slice(0, 10))
     : archiveIndex), [archiveIndex, snap]);
 
+  const channelDirectory = useMemo(() => {
+    const archived = Object.values(archiveCache).reduce<Record<string, Snapshot["channels"][string]>>(
+      (channels, month) => Object.assign(channels, month.channels),
+      {},
+    );
+    return { ...archived, ...(snap?.channels ?? {}) };
+  }, [archiveCache, snap]);
+  const scopedNavIndex = useMemo(() => (navIndex
+    ? filterArchiveIndex(navIndex, channelDirectory, query, selectedChannelId, selectedGroup)
+    : null), [channelDirectory, navIndex, query, selectedChannelId, selectedGroup]);
+
   const archiveMonth = useMemo(() => {
-    if (!historyKind || !navIndex) return null;
-    return pickedMonth ?? latestArchiveMonth(navIndex, historyKind);
-  }, [historyKind, navIndex, pickedMonth]);
+    if (!historyKind || !scopedNavIndex) return null;
+    const pickedCount = scopedNavIndex.months.find((summary) => summary.month === pickedMonth);
+    const pickedStillMatches = historyKind === "recent"
+      ? (pickedCount?.streams ?? 0) > 0
+      : (pickedCount?.milestones ?? 0) > 0;
+    return pickedStillMatches ? pickedMonth : latestArchiveMonth(scopedNavIndex, historyKind);
+  }, [historyKind, pickedMonth, scopedNavIndex]);
 
   // One month in flight at a time — that is the whole point of navigating instead of
   // accumulating. Months already read stay in memory (data, not DOM) so stepping is free.
@@ -96,6 +109,7 @@ export default function Home() {
     // a previous month's failure would otherwise stay on screen over working data.
     const archived = archiveIndex?.months.some((month) => month.month === archiveMonth);
     if (!archiveMonth || !archived || archiveCache[archiveMonth]) {
+      setArchiveLoading(false);
       setMonthError(false);
       return;
     }
@@ -113,29 +127,26 @@ export default function Home() {
   }, [archiveCache, archiveIndex, archiveMonth, monthRetry]);
 
   const archiveData = archiveMonth ? archiveCache[archiveMonth] ?? null : null;
-
   const timeline = useMemo(() => {
     const current = snap ? buildTimeline(snap) : [];
     return mergeTimelines(current, archiveData ? buildArchiveTimeline([archiveData]) : []);
   }, [archiveData, snap]);
-  const groups = useMemo(
-    () => buildGroupFilterOptions(timeline, snap?.groups ?? []),
-    [snap?.groups, timeline],
-  );
-  const groupedTimeline = useMemo(
-    () => filterTimeline(timeline, "", null, null, selectedGroup),
-    [selectedGroup, timeline],
-  );
-  const vtubers = useMemo(() => buildVTuberFilterOptions(groupedTimeline), [groupedTimeline]);
+
+  const filterStats = useMemo(() => buildTimelineFilterStats(
+    timeline,
+    navIndex,
+    channelDirectory,
+    snap?.groups ?? [],
+    { query, selectedChannelId, selectedKind, selectedGroup },
+  ), [channelDirectory, navIndex, query, selectedChannelId, selectedGroup, selectedKind, snap?.groups, timeline]);
   const kindCounts = useMemo(() => {
-    const loaded = buildTimelineKindCounts(groupedTimeline);
-    if (selectedGroup || !navIndex || !snap) return loaded;
+    if (!scopedNavIndex) return filterStats.kindCounts;
     return {
-      ...loaded,
-      recent: Math.max(loaded.recent, archiveTotal(navIndex, "recent")),
-      milestone: Math.max(loaded.milestone, archiveTotal(navIndex, "milestone")),
+      ...filterStats.kindCounts,
+      recent: Math.max(filterStats.kindCounts.recent, archiveTotal(scopedNavIndex, "recent")),
+      milestone: Math.max(filterStats.kindCounts.milestone, archiveTotal(scopedNavIndex, "milestone")),
     };
-  }, [groupedTimeline, navIndex, selectedGroup, snap]);
+  }, [filterStats.kindCounts, scopedNavIndex]);
   const items = useMemo(() => {
     const filtered = filterTimeline(timeline, query, selectedChannelId, selectedKind, selectedGroup);
     // History reads one archive month at a time; without this the current snapshot's own
@@ -145,9 +156,9 @@ export default function Home() {
   }, [archiveMonth, historyKind, query, selectedChannelId, selectedGroup, selectedKind, timeline]);
   // Finished streams and milestones read newest-first; everything else reads forward from now.
   const railMode: RailMode = historyKind ? "history" : "forward";
-  const historyTotal = navIndex && historyKind ? archiveTotal(navIndex, historyKind) : 0;
-  const olderMonth = navIndex && historyKind && archiveMonth
-    ? stepArchiveMonth(navIndex, historyKind, archiveMonth, -1)
+  const historyTotal = scopedNavIndex && historyKind ? archiveTotal(scopedNavIndex, historyKind) : 0;
+  const olderMonth = scopedNavIndex && historyKind && archiveMonth
+    ? stepArchiveMonth(scopedNavIndex, historyKind, archiveMonth, -1)
     : null;
 
   const goToMonth = (month: string) => {
@@ -173,24 +184,24 @@ export default function Home() {
             <CommandBar
               query={query}
               onQueryChange={setQuery}
-              groups={groups}
+              groups={filterStats.groups}
               selectedGroup={selectedGroup}
               onGroupSelect={(group) => {
                 if (group !== selectedGroup) setSelectedChannelId(null);
                 setSelectedGroup(group);
               }}
-              totalCount={timeline.length}
-              vtubers={vtubers}
+              totalCount={filterStats.groupTotalCount}
+              vtubers={filterStats.vtubers}
               selectedChannelId={selectedChannelId}
               onChannelSelect={setSelectedChannelId}
-              groupedCount={groupedTimeline.length}
+              groupedCount={filterStats.vtuberTotalCount}
               kindCounts={kindCounts}
               selectedKind={selectedKind}
               onKindSelect={setSelectedKind}
             />
-            {historyKind && navIndex && (
+            {historyKind && scopedNavIndex && (
               <ArchiveNavigator
-                index={navIndex}
+                index={scopedNavIndex}
                 kind={historyKind}
                 month={archiveMonth}
                 onSelect={setPickedMonth}
@@ -208,7 +219,7 @@ export default function Home() {
               />
               {historyKind && (
                 <div className="mt-5 flex flex-col items-center gap-2 text-center text-xs text-text-secondary" aria-live="polite">
-                  {!navIndex && !archiveError && <span>正在讀取永久封存…</span>}
+                  {!scopedNavIndex && !archiveError && <span>正在讀取永久封存…</span>}
                   {archiveError && (
                     <button
                       type="button"
@@ -218,7 +229,7 @@ export default function Home() {
                       重試讀取封存
                     </button>
                   )}
-                  {navIndex && historyTotal === 0 && (
+                  {scopedNavIndex && historyTotal === 0 && (
                     <span>
                       {historyKind === "recent" ? "目前還沒有已完成直播封存。" : "目前還沒有已發生的里程碑封存。"}
                     </span>
@@ -233,7 +244,7 @@ export default function Home() {
                       看更早的 {formatArchiveMonth(olderMonth)}
                     </button>
                   )}
-                  {navIndex && historyTotal > 0 && !olderMonth && (
+                  {scopedNavIndex && historyTotal > 0 && !olderMonth && (
                     <span>這是封存裡最早的月份。</span>
                   )}
                 </div>

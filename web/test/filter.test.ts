@@ -1,13 +1,14 @@
 import { describe, it, expect } from "vitest";
 import {
   buildGroupFilterOptions,
+  buildTimelineFilterStats,
   buildTimelineKindCounts,
   buildVTuberFilterOptions,
   filterTimeline,
   timelineChannelId,
   UNGROUPED_FILTER_VALUE,
 } from "@/lib/filter";
-import type { SnapshotChannel, TimelineItem } from "@/lib/types";
+import type { ArchiveIndex, SnapshotChannel, TimelineItem } from "@/lib/types";
 
 type StreamTimelineKind = Exclude<TimelineItem["kind"], "milestone">;
 
@@ -191,6 +192,63 @@ describe("buildTimelineKindCounts", () => {
       recent: 1,
       milestone: 1,
     });
+  });
+});
+
+describe("buildTimelineFilterStats", () => {
+  const mizuki = channel("水樹", "@mizuki", null, "子午計畫");
+  const gabu = channel("Gabu", "@gabu");
+  const archive: ArchiveIndex = {
+    version: "1.0.0",
+    generated_at: "2026-08-24T00:00:00Z",
+    facets: "channel",
+    months: [{
+      month: "2026-08",
+      streams: 8,
+      milestones: 3,
+      by_channel: {
+        mizuki: { streams: 3, milestones: 1 },
+        gabu: { streams: 5, milestones: 2 },
+      },
+    }],
+  };
+  const current = [
+    streamItem("水樹", "mizuki", "@mizuki", null, "live", "子午計畫"),
+    streamItem("水樹", "mizuki", "@mizuki", null, "recent", "子午計畫"),
+    streamItem("Gabu", "gabu", "@gabu", null, "upcoming"),
+  ];
+
+  it("scopes kind and group totals to the selected VTuber while leaving VTuber choices faceted", () => {
+    const stats = buildTimelineFilterStats(
+      current,
+      archive,
+      { mizuki, gabu },
+      ["子午計畫"],
+      { query: "", selectedChannelId: "mizuki", selectedKind: null, selectedGroup: null },
+    );
+
+    expect(stats.kindCounts).toEqual({ live: 1, upcoming: 0, recent: 3, milestone: 1 });
+    expect(stats.groupTotalCount).toBe(5);
+    expect(stats.groups.find((option) => option.value === "子午計畫")?.itemCount).toBe(5);
+    expect(stats.vtubers.map(({ channelId, itemCount }) => ({ channelId, itemCount }))).toEqual([
+      { channelId: "gabu", itemCount: 8 },
+      { channelId: "mizuki", itemCount: 5 },
+    ]);
+  });
+
+  it("applies the selected kind to the other facet counts without zeroing kind choices", () => {
+    const stats = buildTimelineFilterStats(
+      current,
+      archive,
+      { mizuki, gabu },
+      ["子午計畫"],
+      { query: "", selectedChannelId: null, selectedKind: "recent", selectedGroup: "子午計畫" },
+    );
+
+    expect(stats.kindCounts).toEqual({ live: 1, upcoming: 0, recent: 3, milestone: 1 });
+    expect(stats.vtuberTotalCount).toBe(3);
+    expect(stats.vtubers).toHaveLength(1);
+    expect(stats.vtubers[0]).toMatchObject({ channelId: "mizuki", itemCount: 3 });
   });
 });
 

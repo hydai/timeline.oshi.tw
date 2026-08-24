@@ -59,6 +59,13 @@ export interface ArchiveMonthSummary {
   month: string;
   streams: number;
   milestones: number;
+  /** Additive v1 facet data; absent on indexes published before channel-scoped counts. */
+  by_channel?: Record<string, ArchiveChannelCounts>;
+}
+
+export interface ArchiveChannelCounts {
+  streams: number;
+  milestones: number;
 }
 
 export interface ArchiveIndex {
@@ -66,6 +73,8 @@ export interface ArchiveIndex {
   generated_at: string;
   /** Timezone the month files are grouped by. Absent on indexes published before UTC+8. */
   grouping?: "Asia/Taipei";
+  /** Facet schema marker; absent on indexes that only contain global month totals. */
+  facets?: "channel";
   months: ArchiveMonthSummary[];
 }
 

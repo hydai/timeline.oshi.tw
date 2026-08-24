@@ -293,16 +293,44 @@ export async function getArchiveMonthSummary(
   cutoffIso: string,
 ): Promise<ArchiveMonthSummary> {
   const bounds = monthBounds(month);
-  const row = await db
-    .prepare(`SELECT
-      (SELECT COUNT(*) FROM streams
-        WHERE status = 'ended' AND availability = 'available'
-          AND actual_end >= ?1 AND actual_end < ?2 AND actual_end <= ?3) AS streams,
-      (SELECT COUNT(*) FROM milestones
-        WHERE substr(date, 1, 7) = ?4 AND date <= ?5) AS milestones`)
+  const { results } = await db
+    .prepare(`WITH archive_rows AS (
+      SELECT channel_id, COUNT(*) AS streams, 0 AS milestones
+      FROM streams
+      WHERE status = 'ended' AND availability = 'available'
+        AND actual_end >= ?1 AND actual_end < ?2 AND actual_end <= ?3
+      GROUP BY channel_id
+      UNION ALL
+      SELECT channel_id, 0 AS streams, COUNT(*) AS milestones
+      FROM milestones
+      WHERE substr(date, 1, 7) = ?4 AND date <= ?5
+      GROUP BY channel_id
+    )
+    SELECT channel_id, SUM(streams) AS streams, SUM(milestones) AS milestones
+    FROM archive_rows
+    GROUP BY channel_id
+    ORDER BY channel_id`)
     .bind(bounds.start, bounds.end, cutoffIso, month, cutoffIso.slice(0, 10))
-    .first<{ streams: number; milestones: number }>();
-  return { month, streams: Number(row?.streams ?? 0), milestones: Number(row?.milestones ?? 0) };
+    .all<{ channel_id: string; streams: number; milestones: number }>();
+  return summarizeArchiveRows(month, results);
+}
+
+interface ArchiveCountRow {
+  channel_id: string;
+  streams: number;
+  milestones: number;
+}
+
+function summarizeArchiveRows(month: string, rows: ArchiveCountRow[]): ArchiveMonthSummary {
+  const summary: ArchiveMonthSummary = { month, streams: 0, milestones: 0, by_channel: {} };
+  for (const row of rows) {
+    const streams = Number(row.streams);
+    const milestones = Number(row.milestones);
+    summary.streams += streams;
+    summary.milestones += milestones;
+    summary.by_channel![row.channel_id] = { streams, milestones };
+  }
+  return summary;
 }
 
 export async function listArchiveMonthSummaries(
@@ -312,27 +340,29 @@ export async function listArchiveMonthSummaries(
   const cutoffDate = cutoffIso.slice(0, 10);
   const { results } = await db
     .prepare(`WITH archive_rows AS (
-      SELECT ${TAIPEI_MONTH_SQL} AS month, COUNT(*) AS streams, 0 AS milestones
+      SELECT ${TAIPEI_MONTH_SQL} AS month, channel_id, COUNT(*) AS streams, 0 AS milestones
       FROM streams
       WHERE status = 'ended' AND availability = 'available'
         AND actual_end IS NOT NULL AND actual_end <= ?1
-      GROUP BY ${TAIPEI_MONTH_SQL}
+      GROUP BY ${TAIPEI_MONTH_SQL}, channel_id
       UNION ALL
-      SELECT substr(date, 1, 7) AS month, 0 AS streams, COUNT(*) AS milestones
+      SELECT substr(date, 1, 7) AS month, channel_id, 0 AS streams, COUNT(*) AS milestones
       FROM milestones
       WHERE date <= ?2
-      GROUP BY substr(date, 1, 7)
+      GROUP BY substr(date, 1, 7), channel_id
     )
-    SELECT month, SUM(streams) AS streams, SUM(milestones) AS milestones
+    SELECT month, channel_id, SUM(streams) AS streams, SUM(milestones) AS milestones
     FROM archive_rows
     WHERE length(month) = 7
-    GROUP BY month
-    ORDER BY month DESC`)
+    GROUP BY month, channel_id
+    ORDER BY month DESC, channel_id`)
     .bind(cutoffIso, cutoffDate)
-    .all<{ month: string; streams: number; milestones: number }>();
-  return results.map((row) => ({
-    month: row.month,
-    streams: Number(row.streams),
-    milestones: Number(row.milestones),
-  }));
+    .all<ArchiveCountRow & { month: string }>();
+  const summaries = new Map<string, ArchiveCountRow[]>();
+  for (const row of results) {
+    const rows = summaries.get(row.month) ?? [];
+    rows.push(row);
+    summaries.set(row.month, rows);
+  }
+  return [...summaries.entries()].map(([month, rows]) => summarizeArchiveRows(month, rows));
 }

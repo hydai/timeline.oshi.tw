@@ -45,11 +45,18 @@ export interface ArchiveMonthSummary {
   month: string;
   streams: number;
   milestones: number;
+  by_channel?: Record<string, ArchiveChannelCounts>;
+}
+
+export interface ArchiveChannelCounts {
+  streams: number;
+  milestones: number;
 }
 
 export interface ArchiveIndex {
   version: "1.0.0";
   generated_at: string;
+  facets?: "channel";
   months: ArchiveMonthSummary[];
 }
 

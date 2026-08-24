@@ -116,7 +116,7 @@ npm test
 
 `SnapshotStream` 的時間欄位（`actualStart` / `scheduledStart` / `actualEnd` / `concurrentViewers`）為選填，值為 null 時直接省略。
 
-永久歷史另由 `streams/v1/archive/index.json` 列出每月筆數；各月 `streams/v1/archive/YYYY-MM.json` 包含該月的 `channels`、已完成 `streams` 與 `milestones`。月份檔只在使用者切換到歷史類型時按需載入。
+永久歷史另由 `streams/v1/archive/index.json` 列出每月筆數；帶有 `facets: "channel"` 的索引也在每月 `by_channel` 提供逐頻道的直播／里程碑筆數，讓前端篩選後的類型、年份與月份統計保持一致。各月 `streams/v1/archive/YYYY-MM.json` 包含該月的 `channels`、已完成 `streams` 與 `milestones`，只在使用者切換到歷史類型時按需載入。
 
 ## 專案結構
 
