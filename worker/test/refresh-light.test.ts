@@ -23,6 +23,7 @@ const lastHeavy: Snapshot = {
 function deps(over: Partial<RefreshDeps> = {}): RefreshDeps {
   return {
     fetchRecentVideoIds: vi.fn(async () => []),
+    fetchUploadIds: vi.fn(async () => ({ ids: [], truncated: false })),
     fetchVideoDetails: async () => [{ ...upcomingRec, status: "live", actualStart: "2026-07-21T01:05:00Z", concurrentViewers: 12 }],
     fetchChannelMeta: vi.fn(async () => []),
     fetchRoster: vi.fn(async () => []),

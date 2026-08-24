@@ -29,10 +29,10 @@ twvtuber REST API ──────────┘         （Cron 觸發）   
 ```
 
 - **`worker/` — streams-cache 後端**（Cloudflare Workers）
-  - **Heavy 全量刷新**（每日 4 次，`0/6/12/18` UTC）：對每個頻道走 RSS 探索（0 API 配額）找出近期影片 → `videos.list` 取直播細節 → 從完整 [twvtuber](https://twvtuber.oshi.tw) 名冊回填出道、歷年週年與畢業里程碑 → 發布資料。
-  - **Light 直播檢查**（每 30 分）：只更新直播中／即將開始的狀態。
+  - **Heavy 全量刷新**（每日 4 次，`0/6/12/18` UTC）：從 data VOD directory 自動註冊新頻道（排除 hololive）→ 對每個頻道走 RSS 探索（0 API 配額）找出近期影片 → `videos.list` 取直播細節 → 從完整 [twvtuber](https://twvtuber.oshi.tw) 名冊回填出道、歷年週年與畢業里程碑 → 為一位 pending 新人回補完整直播史 → 發布資料。
+  - **Light 直播檢查**（每 5 分）：更新直播中／即將開始的狀態，並從 RSS 接住剛建立的新直播。
   - 頻道、所有直播與里程碑永久存於 **D1**（`timeline-streams`）。私人／刪除影片以 tombstone 隱藏而不實體刪除；R2 同時提供輕量 `streams/v1/snapshot.json` 與 `streams/v1/archive/` 月份封存。
-  - 另有 token 保護的手動觸發：`POST /refresh?mode=heavy|light`（帶 `X-Trigger-Token` 標頭），供除錯用。
+  - 另有 token 保護的手動觸發：`POST /refresh?mode=heavy|light`，以及單頻道 `mode=backfill&channel=UC...&dry=0`（帶 `X-Trigger-Token` 標頭），供除錯與 curator 修復用。
 - **`web/` — 前端**（Next.js 16 靜態輸出，部署於 Cloudflare Pages）
   - 於瀏覽器端抓取當前快照與輕量封存索引；選擇「已完成」或「里程碑」後才逐月載入永久紀錄。
 
@@ -122,9 +122,9 @@ npm test
 
 ```
 worker/                 # Cloudflare Worker — streams-cache 後端
-  src/                  # index · refresh · archive · rss · youtube · twvtuber · db · r2 · snapshot · seed · types
+  src/                  # refresh · onboarding · backfill · archive · YouTube/twvtuber/data adapters · D1/R2
   migrations/           # D1 結構與永久歷史 migration
-  seed/                 # channels.json（38 個頻道）+ seed.sql
+  seed/                 # channels.json（初始頻道）+ seed.sql
   scripts/              # build-seed（名冊→channels.json）· import-seed（channels.json→seed.sql）
   test/                 # Vitest（workers pool）
   wrangler.jsonc
@@ -137,7 +137,16 @@ web/                    # Next.js 靜態輸出前端 — 部署於 Pages
 
 ## 新增／更新頻道
 
-頻道種子在 [`worker/seed/channels.json`](worker/seed/channels.json)。有兩種方式：
+正式環境以 `data.oshi.tw/vod/v1/manifest.json` 指向的 VOD directory 作為頻道名單來源。每次 heavy refresh 會：
+
+1. 將 directory 中尚未追蹤、且不屬於 hololive 的 YouTube 頻道寫入 D1。
+2. 建立持久化 onboarding job；同一輪最多處理一位，掃描 uploads playlist 並只保存直播／首播。
+3. 成功後標記完成，不再重複掃描；失敗會在下一輪 heavy 自動重試。
+4. 將回補到的舊月份一併發布至 R2 archive。
+
+完整 uploads playlist 上限為 10,000 部影片；若碰到上限會標記為 `truncated`，留待 curator 人工處理。私人、已刪除或已不在 playlist 的影片無法由 YouTube API 復原。既有頻道在導入 migration 時標為 `legacy`，不會因部署新版而一次重掃全部歷史。
+
+頻道種子 [`worker/seed/channels.json`](worker/seed/channels.json) 保留作為空資料庫的 bootstrap／手動備援。有兩種維護方式：
 
 1. **手動**：直接編輯 `channels.json`（`{ channelId, handle }`）。
 2. **從 prism 名冊重建**：`YOUTUBE_API_KEY=... npm run build:seed`——解析 prism registry 的 YouTube 連結為 channel id 並自動去除 hololive。
@@ -149,7 +158,7 @@ npm run import:seed    # channels.json → seed/seed.sql（idempotent INSERT）
 wrangler d1 execute timeline-streams --remote --file seed/seed.sql
 ```
 
-新頻道會在下一次 heavy 刷新時自動被探索與補齊 metadata。
+套用 seed 後，頻道會在下一次 heavy refresh 補齊 metadata；只要該頻道也存在 VOD directory 且尚無 onboarding 狀態，就會排入一次性歷史回補。
 
 ## 資料來源與致謝
 

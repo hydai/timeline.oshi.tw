@@ -29,10 +29,10 @@ twvtuber REST API ───────────┘         (Cron-triggered) 
 ```
 
 - **`worker/` — the streams-cache backend** (Cloudflare Workers)
-  - **Heavy refresh** (4×/day, `0/6/12/18` UTC): discover recent videos via RSS (0 API quota) → get stream details through `videos.list` → backfill debut, every anniversary, and graduation milestone from the complete [twvtuber](https://twvtuber.oshi.tw) roster → publish data.
-  - **Light refresh** (every 30 min): update only live / imminent stream state.
+  - **Heavy refresh** (4×/day, `0/6/12/18` UTC): auto-register new channels from data's VOD directory (excluding hololive) → discover recent videos via RSS (0 API quota) → get stream details through `videos.list` → backfill debut, every anniversary, and graduation milestone from the complete [twvtuber](https://twvtuber.oshi.tw) roster → backfill one pending newcomer's full stream history → publish data.
+  - **Light refresh** (every 5 min): update live / imminent stream state and discover newly-created streams through RSS.
   - Channels, every stream, and milestones are permanent in **D1** (`timeline-streams`). Private/deleted videos are hidden with tombstones instead of being physically deleted; R2 serves both `streams/v1/snapshot.json` and monthly files under `streams/v1/archive/`.
-  - A token-gated manual trigger (`POST /refresh?mode=heavy|light` with an `X-Trigger-Token` header) exists for debugging.
+  - Token-gated manual triggers cover `POST /refresh?mode=heavy|light` and one-channel repair through `mode=backfill&channel=UC...&dry=0` (with an `X-Trigger-Token` header).
 - **`web/` — the frontend** (Next.js 16 static export, deployed to Cloudflare Pages)
   - Fetches the current snapshot and lightweight archive index; monthly permanent records load only after selecting Completed or Milestones.
 
@@ -122,9 +122,9 @@ Permanent history is indexed by `streams/v1/archive/index.json`. Each `streams/v
 
 ```
 worker/                 # Cloudflare Worker — streams-cache backend
-  src/                  # index · refresh · archive · rss · youtube · twvtuber · db · r2 · snapshot · seed · types
+  src/                  # refresh · onboarding · backfill · archive · YouTube/twvtuber/data adapters · D1/R2
   migrations/           # D1 schema and permanent-history migration
-  seed/                 # channels.json (38 channels) + seed.sql
+  seed/                 # channels.json (bootstrap channels) + seed.sql
   scripts/              # build-seed (roster → channels.json) · import-seed (channels.json → seed.sql)
   test/                 # Vitest (workers pool)
   wrangler.jsonc
@@ -137,7 +137,16 @@ web/                    # Next.js static-export frontend — deployed to Pages
 
 ## Adding / updating channels
 
-The channel seed lives in [`worker/seed/channels.json`](worker/seed/channels.json). Two ways:
+Production treats the VOD directory referenced by `data.oshi.tw/vod/v1/manifest.json` as the channel source. Each heavy refresh:
+
+1. Inserts previously untracked YouTube channels that are not part of hololive into D1.
+2. Creates a durable onboarding job and processes at most one newcomer per pass, walking the uploads playlist and retaining only livestreams/premieres.
+3. Marks successful jobs complete so they never scan twice; failures retry on the next heavy pass.
+4. Publishes any backfilled historical months to the R2 archive.
+
+The complete-playlist scan is capped at 10,000 uploads. Hitting that cap marks the job `truncated` for curator follow-up. Private, deleted, or no-longer-listed videos cannot be recovered through the YouTube API. Channels that already exist when the migration is applied are marked `legacy`, avoiding an unexpected full-history scan of the entire production roster.
+
+[`worker/seed/channels.json`](worker/seed/channels.json) remains the bootstrap/fallback for an empty database. Two ways to maintain it:
 
 1. **By hand** — edit `channels.json` directly (`{ channelId, handle }`).
 2. **Rebuild from the prism roster** — `YOUTUBE_API_KEY=... npm run build:seed` resolves the YouTube links in prism's registry to channel ids and drops hololive automatically.
@@ -149,7 +158,7 @@ npm run import:seed    # channels.json → seed/seed.sql (idempotent INSERTs)
 wrangler d1 execute timeline-streams --remote --file seed/seed.sql
 ```
 
-New channels are discovered and back-filled with metadata on the next heavy refresh.
+After applying the seed, channels receive metadata on the next heavy refresh. A seeded channel that also exists in the VOD directory and has no onboarding state is queued for its one-time history backfill.
 
 ## Data sources & attribution
 

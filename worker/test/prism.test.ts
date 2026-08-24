@@ -6,6 +6,7 @@ import {
   normalizeGroupName,
   prismSnapshotKey,
   readPrismGroups,
+  readPrismStreamers,
 } from "../src/prism";
 import type { RosterEntry } from "../src/types";
 
@@ -83,14 +84,19 @@ describe("readPrismGroups", () => {
     await env.DATA_PUBLIC.put(prismSnapshotKey(SHA), JSON.stringify({
       schemaVersion: "1.0.0",
       streamers: [
-        { youtubeChannelId: "UCa", displayName: "Earendel", group: "春魚創意" },
+        {
+          youtubeChannelId: "UCa", displayName: "Earendel", group: "春魚創意",
+          socialLinks: { youtube: "https://www.youtube.com/@EarendelXDFP" },
+        },
         { youtubeChannelId: "UCb", displayName: "solo", group: "個人勢" },
         { youtubeChannelId: "UCc", displayName: "no group", group: null },
       ],
     }));
 
+    const directory = await readPrismStreamers(env.DATA_PUBLIC);
     const groups = await readPrismGroups(env.DATA_PUBLIC);
 
+    expect(directory[0]).toEqual({ youtubeChannelId: "UCa", handle: "@EarendelXDFP", group: "春魚創意" });
     expect(groups.get("UCa")).toBe("春魚創意");
     // "個人勢" is prism asserting the channel is unaffiliated, so it maps to null and
     // still counts as an override.

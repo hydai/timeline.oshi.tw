@@ -4,6 +4,7 @@ import { heavyRefresh, lightRefresh, type RefreshDeps } from "./refresh";
 import { fetchRecentVideoIds } from "./rss";
 import { fetchVideoDetails, fetchChannelMeta, fetchUploadIds } from "./youtube";
 import { fetchRoster } from "./twvtuber";
+import { settleManualBackfill } from "./onboarding";
 
 export function routeCron(cron: string): "heavy" | "light" | "none" {
   if (cron === "0 0,6,12,18 * * *") return "heavy";
@@ -14,6 +15,7 @@ export function routeCron(cron: string): "heavy" | "light" | "none" {
 function makeDeps(env: Env): RefreshDeps {
   return {
     fetchRecentVideoIds: (id) => fetchRecentVideoIds(id),
+    fetchUploadIds: (playlistId) => fetchUploadIds(env.YOUTUBE_API_KEY, env.YT_REFERER, playlistId),
     fetchVideoDetails: (ids) => fetchVideoDetails(env.YOUTUBE_API_KEY, env.YT_REFERER, ids),
     fetchChannelMeta: (ids) => fetchChannelMeta(env.YOUTUBE_API_KEY, env.YT_REFERER, ids),
     fetchRoster: () => fetchRoster(env.TWVTUBER_BASE),
@@ -57,6 +59,7 @@ export default {
         const dryRun = url.searchParams.get("dry") !== "0";
         try {
           const report = await backfillChannel(env, makeBackfillDeps(env), channelId, { dryRun });
+          if (!dryRun) await settleManualBackfill(env.DB, report, new Date().toISOString());
           return Response.json({ mode: "backfill", ok: true, ...report });
         } catch (e) {
           return Response.json(

@@ -1,3 +1,4 @@
+import { parseYoutubeLink } from "./seed";
 import type { RosterEntry } from "./types";
 
 /**
@@ -26,8 +27,19 @@ export function prismSnapshotKey(sha256: string): string {
 const UNAFFILIATED = "個人勢";
 
 interface PrismManifest { sha256?: unknown }
-interface PrismStreamer { youtubeChannelId?: unknown; group?: unknown }
+interface RawPrismStreamer {
+  youtubeChannelId?: unknown;
+  group?: unknown;
+  socialLinks?: { youtube?: unknown };
+}
 interface PrismSnapshot { streamers?: unknown }
+
+export interface PrismStreamer {
+  youtubeChannelId: string;
+  handle: string | null;
+  /** Normalized source value. `個人勢` remains explicit here for onboarding policy. */
+  group: string;
+}
 
 /**
  * Fold presentation-only codepoints so two spellings of one company compare equal.
@@ -36,6 +48,15 @@ interface PrismSnapshot { streamers?: unknown }
  */
 export function normalizeGroupName(raw: string): string {
   return raw.normalize("NFKC").trim();
+}
+
+/** Convert one already-read VOD directory into the affiliation overlay. */
+export function indexPrismGroups(streamers: PrismStreamer[]): Map<string, string | null> {
+  const groups = new Map<string, string | null>();
+  for (const streamer of streamers) {
+    groups.set(streamer.youtubeChannelId, streamer.group === UNAFFILIATED ? null : streamer.group);
+  }
+  return groups;
 }
 
 /**
@@ -71,39 +92,47 @@ export function applyPrismGroups(
  * that has been pruned, malformed JSON — yields an empty map, so a prism outage leaves
  * the twvtuber groups standing rather than blanking them.
  */
-export async function readPrismGroups(bucket: R2Bucket): Promise<Map<string, string | null>> {
-  const groups = new Map<string, string | null>();
-
+export async function readPrismStreamers(bucket: R2Bucket): Promise<PrismStreamer[]> {
   const manifestObject = await bucket.get(PRISM_MANIFEST_KEY);
-  if (!manifestObject) return groups;
+  if (!manifestObject) return [];
 
   let key: string;
   try {
     const manifest = (await manifestObject.json()) as PrismManifest;
-    if (typeof manifest.sha256 !== "string") return groups;
+    if (typeof manifest.sha256 !== "string") return [];
     key = prismSnapshotKey(manifest.sha256);
   } catch {
-    return groups;
+    return [];
   }
 
   const snapshotObject = await bucket.get(key);
-  if (!snapshotObject) return groups;
+  if (!snapshotObject) return [];
 
   let streamers: unknown;
   try {
     ({ streamers } = (await snapshotObject.json()) as PrismSnapshot);
   } catch {
-    return groups;
+    return [];
   }
-  if (!Array.isArray(streamers)) return groups;
+  if (!Array.isArray(streamers)) return [];
 
-  for (const streamer of streamers as PrismStreamer[]) {
+  const out: PrismStreamer[] = [];
+  for (const raw of streamers) {
+    if (raw == null || typeof raw !== "object") continue;
+    const streamer = raw as RawPrismStreamer;
     const { youtubeChannelId, group } = streamer;
     if (typeof youtubeChannelId !== "string" || typeof group !== "string") continue;
     const name = normalizeGroupName(group);
     if (!name) continue;
-    groups.set(youtubeChannelId, name === UNAFFILIATED ? null : name);
+    const youtube = streamer.socialLinks?.youtube;
+    const handle = typeof youtube === "string" ? parseYoutubeLink(youtube).handle ?? null : null;
+    out.push({ youtubeChannelId, handle, group: name });
   }
 
-  return groups;
+  return out;
+}
+
+/** Backwards-compatible convenience for callers that only need company names. */
+export async function readPrismGroups(bucket: R2Bucket): Promise<Map<string, string | null>> {
+  return indexPrismGroups(await readPrismStreamers(bucket));
 }

@@ -5,16 +5,18 @@ import {
   listMilestonesBetween, listStreamsByStatus, markStreamsUnavailableBatch, setChannelMetasBatch,
   unseenVideoIds, upsertMilestonesBatch, upsertStreamsBatch,
 } from "./db";
-import { applyPrismGroups, readPrismGroups } from "./prism";
+import { applyPrismGroups, indexPrismGroups, readPrismStreamers, type PrismStreamer } from "./prism";
 import { derivePermanentMilestones, indexRosterByYoutubeId } from "./twvtuber";
 import { buildSnapshot } from "./snapshot";
 import { readSnapshot, writeSnapshot } from "./r2";
 import { publishArchive } from "./archive";
+import { processNextOnboarding, registerOnboardingCandidates, timelineOnboardingCandidates } from "./onboarding";
 
 const DAY = 24 * 60 * 60 * 1000;
 
 export interface RefreshDeps {
   fetchRecentVideoIds: (channelId: string) => Promise<string[]>;
+  fetchUploadIds: (playlistId: string) => Promise<{ ids: string[]; truncated: boolean }>;
   fetchVideoDetails: (ids: string[]) => Promise<StreamRecord[]>;
   fetchChannelMeta: (ids: string[]) => Promise<ChannelMeta[]>;
   fetchRoster: () => Promise<TwVtuber[]>;
@@ -81,6 +83,32 @@ async function listSnapshotMilestones(db: D1Database, nowMs: number): Promise<Mi
 export async function heavyRefresh(env: Env, deps: RefreshDeps): Promise<Snapshot> {
   const nowIso = deps.now();
   const nowMs = new Date(nowIso).getTime();
+
+  // 0. Data's VOD directory is the live tracking authority. Register additions before
+  // reading enabled channels so the rest of this same heavy pass can enrich, discover,
+  // backfill and publish them. Missing/malformed data never removes existing channels.
+  let prismStreamers: PrismStreamer[] = [];
+  try {
+    prismStreamers = await readPrismStreamers(env.DATA_PUBLIC);
+    const registered = await registerOnboardingCandidates(
+      env.DB,
+      timelineOnboardingCandidates(prismStreamers),
+      nowIso,
+    );
+    if (registered.length > 0) {
+      console.log(JSON.stringify({
+        message: "registered timeline channels from data VOD directory",
+        count: registered.length,
+        channelIds: registered,
+      }));
+    }
+  } catch (e) {
+    console.error(JSON.stringify({
+      message: "channel onboarding discovery failed",
+      error: e instanceof Error ? e.message : String(e),
+    }));
+  }
+
   const channels = await listEnabledChannels(env.DB);
   const trackedIds = new Set(channels.map((c) => c.channel_id));
 
@@ -128,11 +156,15 @@ export async function heavyRefresh(env: Env, deps: RefreshDeps): Promise<Snapsho
   // Prism is the authority on affiliation — twvtuber files 春魚創意 under the brand
   // "SquareLive", and still lists 銀河 Galaxy under 靛堂 after it went solo. Prism wins
   // for every channel it carries; a prism outage leaves the roster untouched.
-  try {
-    roster = applyPrismGroups(roster, await readPrismGroups(env.DATA_PUBLIC));
-  } catch (e) {
-    console.warn(`prism groups failed: ${(e as Error).message}`);
-  }
+  roster = applyPrismGroups(roster, indexPrismGroups(prismStreamers));
+
+  // Only one whole-channel history scan runs per heavy pass. D1 keeps the durable
+  // pending/running/completed state, so failures retry and duplicate cron delivery is safe.
+  await processNextOnboarding(env, {
+    fetchUploadIds: deps.fetchUploadIds,
+    fetchVideoDetails: deps.fetchVideoDetails,
+    now: () => nowIso,
+  }, nowIso);
 
   // 5. Publish a lightweight current snapshot plus the permanent monthly archive.
   const rows = await listEnabledChannels(env.DB);
