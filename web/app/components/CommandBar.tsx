@@ -46,7 +46,7 @@ export default function CommandBar({
   onKindSelect: (kind: TimelineKind | null) => void;
 }) {
   return (
-    <div className="glass sticky top-2 z-30 rounded-3xl p-2 shadow-lg">
+    <div className="glass-toolbar sticky top-2 z-30 rounded-3xl p-2 shadow-lg">
       <div className="flex flex-wrap items-center gap-2">
         <SearchBar value={query} onChange={onQueryChange} />
         <GroupFilter

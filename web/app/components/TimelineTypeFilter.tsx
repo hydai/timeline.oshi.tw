@@ -96,7 +96,7 @@ export default function TimelineTypeFilter({
               onClick={() => onSelect(option.kind)}
               className={[
                 "flex h-11 flex-none snap-start items-center justify-center gap-1.5 rounded-2xl border px-3 text-[13px] font-bold whitespace-nowrap",
-                "transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-pink",
+                "transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-accent-pink",
                 active
                   ? option.activeClass
                   : "border-transparent bg-transparent text-text-secondary hover:bg-[var(--bg-surface-muted)] hover:text-text-primary",

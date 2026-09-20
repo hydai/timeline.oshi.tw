@@ -27,7 +27,7 @@ export default function MilestoneCard({ milestone, channel }: { milestone: Miles
         <ChannelAvatar src={channel.avatar} name={channel.name} size={34} />
       </span>
       <div className="min-w-0 flex-1">
-        <div className="truncate text-sm font-bold text-text-primary sm:text-[14.5px]">{channel.name}</div>
+        <div className="truncate text-sm font-bold text-text-primary sm:text-[14.5px] sm:leading-5">{channel.name}</div>
         <div className="text-xs text-text-secondary">{label} · {milestone.date}</div>
       </div>
       {channel.group && (

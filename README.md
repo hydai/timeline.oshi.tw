@@ -41,12 +41,16 @@ twvtuber REST API ──────────┘         （Cron 觸發）   
 
 | | |
 |---|---|
-| **後端** | Cloudflare Workers · D1 · R2 · Cron Triggers · TypeScript · [zod](https://zod.dev) · Vitest（`@cloudflare/vitest-pool-workers`）· Wrangler 4 |
-| **前端** | Next.js 16（App Router，`output: 'export'`）· React 19 · TypeScript · Tailwind CSS 3.4 · lucide-react · next/font（自架字型）· Vitest + Testing Library + jsdom |
+| **後端** | Cloudflare Workers · D1 · R2 · Cron Triggers · TypeScript 7 · [zod](https://zod.dev) · Vitest 4（`@cloudflare/vitest-pool-workers`）· Wrangler 4 |
+| **前端** | Next.js 16（App Router，`output: 'export'`）· React 19 · TypeScript 7 · Tailwind CSS 4 · lucide-react · next/font（自架字型）· Vitest 4 + Testing Library + jsdom |
 
 ## 快速開始
 
-需求：Node.js 20+、[Wrangler](https://developers.cloudflare.com/workers/wrangler/) 4、一組 [YouTube Data API v3](https://developers.google.com/youtube/v3) 金鑰、一個 Cloudflare 帳號。
+需求：Node.js 24+（儲存庫的 `.nvmrc` 指定 24）、[Wrangler](https://developers.cloudflare.com/workers/wrangler/) 4、一組 [YouTube Data API v3](https://developers.google.com/youtube/v3) 金鑰、一個 Cloudflare 帳號。
+
+前後端維持 Vitest 4，配合 `@cloudflare/vitest-pool-workers` 的相依要求。Worker 以限定於 Miniflare 的 override 固定使用 `sharp 0.35.4`，修補 [GHSA-rgj7-g3m4-5g8c](https://github.com/lovell/sharp/security/advisories/GHSA-rgj7-g3m4-5g8c)；待測試工具鏈不再帶入舊版 sharp 後即可移除。更新依賴時，兩個目錄都要執行 `npm audit`、`npm test` 與 `npm run typecheck`，並驗證前端靜態建置及 Worker 的 `wrangler deploy --dry-run`。
+
+Tailwind 4 的主題與來源設定位於 `web/app/globals.css`，PostCSS 使用 `@tailwindcss/postcss`。支援的瀏覽器基準為 Safari 16.4+、Chrome 111+、Firefox 128+。
 
 ### 後端 Worker（`worker/`）
 

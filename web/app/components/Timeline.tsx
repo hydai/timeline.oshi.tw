@@ -11,7 +11,7 @@ import EmptyState from "./EmptyState";
 
 const GRID = "grid grid-cols-[52px_18px_minmax(0,1fr)] items-start sm:grid-cols-[76px_22px_minmax(0,1fr)]";
 /** The rail line overshoots the row gap so it reads as one continuous line, not a dotted one. */
-const LINE = "absolute left-[8px] top-0 -bottom-3 w-0.5 rounded bg-[var(--rail)] sm:left-[10px]";
+const LINE = "absolute left-[8px] top-0 -bottom-3 w-0.5 rounded-sm bg-[var(--rail)] sm:left-[10px]";
 const DOT = "absolute left-[4px] top-3 h-2.5 w-2.5 rounded-full sm:left-[5px] sm:top-4 sm:h-3 sm:w-3";
 
 function Row({ time, node, children }: { time?: ReactNode; node: ReactNode; children: ReactNode }) {

@@ -8,8 +8,8 @@ import {
 } from "@/lib/filter";
 import { usePopover } from "./usePopover";
 
-function Option({ name, count, active, empty, onSelect }: {
-  name: string; count: number; active: boolean; empty: boolean; onSelect: () => void;
+function Option({ name, count, active, onSelect }: {
+  name: string; count: number; active: boolean; onSelect: () => void;
 }) {
   return (
     <button
@@ -19,15 +19,14 @@ function Option({ name, count, active, empty, onSelect }: {
       onClick={onSelect}
       className={[
         "flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-[13px] font-semibold",
-        "transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-pink",
+        "transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-accent-pink",
         active
           ? "bg-[var(--bg-accent-pink-muted)] text-text-primary"
-          : "text-text-secondary hover:bg-[var(--bg-surface-muted)] hover:text-text-primary",
-        empty && !active ? "opacity-50" : "",
+          : "text-text-primary hover:bg-[var(--bg-popover-hover)]",
       ].join(" ")}
     >
       <span className="min-w-0 flex-1 truncate">{name}</span>
-      <span className="text-[11px] tabular-nums text-text-secondary">{count}</span>
+      <span className="text-[11px] tabular-nums text-[var(--text-filter-muted)]">{count}</span>
     </button>
   );
 }
@@ -43,7 +42,7 @@ export default function GroupFilter({
   totalCount: number;
   onSelect: (group: GroupFilterValue) => void;
 }) {
-  const { open, setOpen, ref } = usePopover<HTMLDivElement>();
+  const { open, setOpen, ref, panelRef } = usePopover<HTMLDivElement>();
   const active = options.find((option) => option.value === selected);
 
   const choose = (group: GroupFilterValue) => {
@@ -61,7 +60,7 @@ export default function GroupFilter({
         onClick={() => setOpen(!open)}
         className={[
           "flex h-11 items-center gap-1.5 rounded-2xl px-3 text-[13px] font-bold",
-          "transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-pink",
+          "transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-accent-pink",
           selected
             ? "bg-[var(--bg-accent-pink-muted)] text-[var(--accent-pink-dark)]"
             : "bg-[var(--bg-surface-muted)] text-text-secondary hover:text-text-primary",
@@ -73,12 +72,11 @@ export default function GroupFilter({
       </button>
 
       {open && (
-        <div className="glass absolute left-0 top-[52px] z-50 w-[232px] rounded-2xl p-1.5 shadow-2xl">
+        <div ref={panelRef} className="popover-surface absolute left-0 top-[52px] z-50 w-[232px] rounded-2xl p-1.5">
           <Option
             name="全部團體"
             count={totalCount}
             active={selected == null}
-            empty={false}
             onSelect={() => choose(null)}
           />
           {options.map((option) => (
@@ -87,7 +85,6 @@ export default function GroupFilter({
               name={option.name}
               count={option.itemCount}
               active={selected === option.value}
-              empty={option.itemCount === 0}
               onSelect={() => choose(option.value === UNGROUPED_FILTER_VALUE ? UNGROUPED_FILTER_VALUE : option.value)}
             />
           ))}

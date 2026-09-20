@@ -31,7 +31,7 @@ export default function ShareControls({ href, channelHref }: { href: string; cha
     }
   };
 
-  const button = "inline-flex min-h-10 items-center gap-1.5 rounded-pill bg-[var(--bg-surface-muted)] px-3 text-xs font-semibold text-text-secondary hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-pink";
+  const button = "inline-flex min-h-10 items-center gap-1.5 rounded-pill bg-[var(--bg-surface-muted)] px-3 text-xs font-semibold text-text-secondary hover:text-text-primary focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-accent-pink";
   return (
     <div className="mb-3">
       <div className="flex flex-wrap items-center justify-end gap-2">

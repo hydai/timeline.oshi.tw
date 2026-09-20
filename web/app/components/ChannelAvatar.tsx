@@ -16,7 +16,7 @@ export default function ChannelAvatar({ src, name, size, className = "" }: {
 
   return (
     <span
-      className={`grid flex-none place-items-center overflow-hidden rounded-full bg-gradient-to-br from-accent-pink-light to-accent-blue-light font-extrabold text-white ${className}`}
+      className={`grid flex-none place-items-center overflow-hidden rounded-full bg-linear-to-br/srgb from-accent-pink-light to-accent-blue-light font-extrabold text-white ${className}`}
       style={{ width: size, height: size, fontSize: Math.max(9, Math.round(size * 0.42)) }}
       aria-hidden="true"
     >

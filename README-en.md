@@ -41,12 +41,16 @@ twvtuber REST API ───────────┘         (Cron-triggered) 
 
 | | |
 |---|---|
-| **Backend** | Cloudflare Workers · D1 · R2 · Cron Triggers · TypeScript · [zod](https://zod.dev) · Vitest (`@cloudflare/vitest-pool-workers`) · Wrangler 4 |
-| **Frontend** | Next.js 16 (App Router, `output: 'export'`) · React 19 · TypeScript · Tailwind CSS 3.4 · lucide-react · next/font (self-hosted) · Vitest + Testing Library + jsdom |
+| **Backend** | Cloudflare Workers · D1 · R2 · Cron Triggers · TypeScript 7 · [zod](https://zod.dev) · Vitest 4 (`@cloudflare/vitest-pool-workers`) · Wrangler 4 |
+| **Frontend** | Next.js 16 (App Router, `output: 'export'`) · React 19 · TypeScript 7 · Tailwind CSS 4 · lucide-react · next/font (self-hosted) · Vitest 4 + Testing Library + jsdom |
 
 ## Getting started
 
-Requirements: Node.js 20+, [Wrangler](https://developers.cloudflare.com/workers/wrangler/) 4, a [YouTube Data API v3](https://developers.google.com/youtube/v3) key, and a Cloudflare account.
+Requirements: Node.js 24+ (the repository's `.nvmrc` selects 24), [Wrangler](https://developers.cloudflare.com/workers/wrangler/) 4, a [YouTube Data API v3](https://developers.google.com/youtube/v3) key, and a Cloudflare account.
+
+Both projects stay on Vitest 4 to satisfy `@cloudflare/vitest-pool-workers` peer dependencies. The Worker pins `sharp 0.35.4` with a Miniflare-scoped override to fix [GHSA-rgj7-g3m4-5g8c](https://github.com/lovell/sharp/security/advisories/GHSA-rgj7-g3m4-5g8c); remove it once the test toolchain no longer includes older sharp versions. After dependency updates, run `npm audit`, `npm test`, and `npm run typecheck` in both directories, plus the frontend static build and `wrangler deploy --dry-run` for the Worker.
+
+Tailwind 4 theme and source configuration lives in `web/app/globals.css`, with `@tailwindcss/postcss` as the PostCSS plugin. The browser baseline is Safari 16.4+, Chrome 111+, and Firefox 128+.
 
 ### Backend Worker (`worker/`)
 

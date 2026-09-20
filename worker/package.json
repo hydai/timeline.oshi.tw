@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=24.0.0"
+  },
   "description": "Internal cache Worker: TW VTuber live/upcoming/recent streams → data.oshi.tw/streams/v1",
   "license": "Apache-2.0",
   "scripts": {
@@ -18,15 +21,20 @@
     "import:seed": "tsx scripts/import-seed.ts"
   },
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "^0.16.9",
-    "@types/node": "^25.9.1",
-    "@vitest/coverage-istanbul": "^4.1.7",
-    "tsx": "^4.22.3",
-    "typescript": "^6.0.3",
-    "vitest": "^4.1.7",
-    "wrangler": "^4.94.0"
+    "@cloudflare/vitest-pool-workers": "^0.22.0",
+    "@types/node": "^24.13.6",
+    "@vitest/coverage-istanbul": "^4.1.11",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.11",
+    "wrangler": "^4.135.0"
   },
   "dependencies": {
-    "zod": "^4.4.3"
+    "zod": "^4.6.5"
+  },
+  "overrides": {
+    "miniflare": {
+      "sharp": "0.35.4"
+    }
   }
 }

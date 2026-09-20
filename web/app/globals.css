@@ -1,6 +1,37 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss" source("./");
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme inline {
+  --font-sans: var(--font-primary);
+  --color-accent-pink: var(--accent-pink);
+  --color-accent-pink-light: var(--accent-pink-light);
+  --color-accent-blue: var(--accent-blue);
+  --color-accent-blue-light: var(--accent-blue-light);
+  --color-accent-purple: var(--accent-purple);
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-tertiary: var(--text-tertiary);
+  --radius-xl: 16px;
+  --radius-2xl: 20px;
+  --radius-3xl: 24px;
+  --radius-pill: 28px;
+
+  /* Preserve the existing decorative glow colors across the v4 palette change. */
+  --color-pink-300: #F9A8D4;
+  --color-blue-300: #93C5FD;
+}
+
+@layer base {
+  button,
+  [role="button"] {
+    cursor: pointer;
+  }
+
+  :disabled {
+    cursor: default;
+  }
+}
 
 html {
   overflow-x: clip;
@@ -22,6 +53,12 @@ html {
   --bg-surface-frosted: #FFFFFF99;
   --bg-surface-glass: #FFFFFF66;
   --bg-surface-muted: #FFFFFF80;
+
+  --bg-popover-glass: rgba(255, 255, 255, 0.94);
+  --bg-popover-hover: rgba(15, 23, 42, 0.06);
+  --border-popover: rgba(148, 163, 184, 0.35);
+  --shadow-popover: rgba(30, 41, 59, 0.18);
+  --highlight-popover: rgba(255, 255, 255, 0.90);
 
   --bg-accent-pink: #FDF2F8;
   --bg-accent-pink-muted: #FCE7F3;
@@ -62,6 +99,12 @@ html.dark {
   --bg-surface-glass: rgba(30, 31, 52, 0.60);
   --bg-surface-muted: rgba(45, 46, 72, 0.50);
 
+  --bg-popover-glass: rgba(26, 27, 46, 0.94);
+  --bg-popover-hover: rgba(255, 255, 255, 0.08);
+  --border-popover: rgba(255, 255, 255, 0.18);
+  --shadow-popover: rgba(0, 0, 0, 0.45);
+  --highlight-popover: rgba(255, 255, 255, 0.08);
+
   --bg-accent-pink: rgba(244, 114, 182, 0.10);
   --bg-accent-pink-muted: rgba(244, 114, 182, 0.15);
   --bg-accent-blue: rgba(96, 165, 250, 0.10);
@@ -70,7 +113,7 @@ html.dark {
   --text-primary: #E8EAF0;
   --text-secondary: #9CA3AF;
   --text-tertiary: #6B7280;
-  --text-filter-muted: #9CA3AF;
+  --text-filter-muted: #B6BCC8;
   --text-on-accent: #FFFFFF;
 
   --border-default: rgba(255, 255, 255, 0.10);
@@ -92,9 +135,54 @@ body {
 
 .glass {
   background: var(--bg-surface-glass);
-  backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
   border: 1px solid var(--border-glass);
+}
+
+/* Keep the toolbar's blur on a separate layer so it does not become a
+   backdrop root that prevents its popovers from blurring the timeline. */
+.glass-toolbar {
+  border: 1px solid var(--border-glass);
+}
+
+.glass-toolbar::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+  background: var(--bg-surface-glass);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+}
+
+.popover-surface {
+  /* A solid fallback keeps the menu legible in older in-app browsers. */
+  background: var(--bg-surface);
+  border: 1px solid var(--border-popover);
+  box-shadow: 0 16px 40px var(--shadow-popover), inset 0 1px 0 var(--highlight-popover);
+  max-width: calc(100vw - 32px);
+  max-height: min(360px, 60dvh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+@supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+  .popover-surface {
+    background: var(--bg-popover-glass);
+    -webkit-backdrop-filter: blur(24px) saturate(1.25);
+    backdrop-filter: blur(24px) saturate(1.25);
+  }
+}
+
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  .popover-surface {
+    background: var(--bg-surface);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
 }
 
 .scrollbar-none {

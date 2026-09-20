@@ -10,7 +10,7 @@ export default function SearchBar({ value, onChange }: { value: string; onChange
         onChange={(e) => onChange(e.target.value)}
         placeholder="搜尋 VTuber…"
         aria-label="搜尋 VTuber"
-        className="w-full min-w-0 bg-transparent text-[13.5px] text-text-primary outline-none placeholder:text-text-tertiary"
+        className="w-full min-w-0 bg-transparent text-[13.5px] text-text-primary outline-hidden placeholder:text-text-tertiary"
       />
     </label>
   );

@@ -17,7 +17,7 @@ const STEP = [
   "flex h-10 flex-none items-center gap-1.5 rounded-2xl bg-[var(--bg-surface-muted)] px-3 text-[12.5px]",
   "font-bold text-text-secondary tabular-nums transition-colors hover:text-text-primary",
   "disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:text-text-secondary",
-  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-pink",
+  "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-accent-pink",
 ].join(" ");
 
 /** "2025-11" → "2025/11", for the compact step buttons. */
@@ -91,7 +91,7 @@ export default function ArchiveNavigator({
               className={[
                 "flex h-11 min-w-[62px] flex-1 flex-col items-center justify-center rounded-2xl border",
                 "text-sm font-extrabold tabular-nums transition-colors",
-                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-pink",
+                "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-accent-pink",
                 active ? ACTIVE : IDLE,
               ].join(" ")}
             >
@@ -116,7 +116,7 @@ export default function ArchiveNavigator({
               onClick={() => onSelect(cell.month)}
               className={[
                 "flex h-[52px] flex-col justify-center rounded-2xl border px-2.5 py-2 text-left transition-colors sm:px-3",
-                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-pink",
+                "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-accent-pink",
                 "disabled:cursor-not-allowed",
                 active ? ACTIVE : empty ? EMPTY : IDLE,
               ].join(" ")}
@@ -170,7 +170,7 @@ export default function ArchiveNavigator({
           <button
             type="button"
             onClick={onRetry}
-            className="rounded-pill bg-[var(--bg-surface-muted)] px-4 py-2 text-sm font-semibold text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-pink"
+            className="rounded-pill bg-[var(--bg-surface-muted)] px-4 py-2 text-sm font-semibold text-text-primary focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-accent-pink"
           >
             重新載入這個月
           </button>
