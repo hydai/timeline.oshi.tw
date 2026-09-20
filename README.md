@@ -34,7 +34,8 @@ twvtuber REST API ──────────┘         （Cron 觸發）   
   - 頻道、所有直播與里程碑永久存於 **D1**（`timeline-streams`）。私人／刪除影片以 tombstone 隱藏而不實體刪除；R2 同時提供輕量 `streams/v1/snapshot.json` 與 `streams/v1/archive/` 月份封存。
   - 另有 token 保護的手動觸發：`POST /refresh?mode=heavy|light`，以及單頻道 `mode=backfill&channel=UC...&dry=0`（帶 `X-Trigger-Token` 標頭），供除錯與 curator 修復用。
 - **`web/` — 前端**（Next.js 16 靜態輸出，部署於 Cloudflare Pages）
-  - 於瀏覽器端抓取當前快照與輕量封存索引；選擇「已完成」或「里程碑」後才逐月載入永久紀錄。
+  - 於瀏覽器端抓取當前快照與輕量封存索引。「全部」固定顯示直播／預定活動，以及按月份展開的已完成直播與里程碑，可由底部查看更早月份；切換歷史月份不會隱藏直播／預定活動。年月選擇器僅在「已完成」和「里程碑」顯示。
+  - 重新整理會先還原瀏覽器快取，過期資料在背景重新驗證：快照有效 1 分鐘、索引與當月封存 5 分鐘、過去月份 1 小時；頁面仍每 5 分鐘檢查更新。可先顯示的舊資料上限分別為快照 15 分鐘、索引 1 天、月份 7 天；更新失敗保留畫面並提供重試。快取最多 8 筆、約 4 MB，儲存空間不可用時改由網路載入。頁首與首頁連結直接包含於靜態 HTML。
 
 ## 技術棧
 
@@ -95,6 +96,41 @@ npm test
 ```
 
 部署到 **Cloudflare Pages**：build 指令 `npm run build`、輸出目錄 `out/`。資料來源以 `NEXT_PUBLIC_SNAPSHOT_URL` 指定，未設定時預設回退到 `https://data.oshi.tw/streams/v1/snapshot.json`（見 [`web/.env.example`](web/.env.example)）。提供快照的主機必須送出 `Access-Control-Allow-Origin`，因為瀏覽器是跨來源抓取的。
+
+## 分享篩選與 VTuber 別名
+
+網址會保存搜尋、團體、VTuber、內容類型與歷史月份；重新整理和瀏覽器上一頁／下一頁會還原相同條件。例如：
+
+```text
+/?channel=UCjv4bfP_67WLuPheS-Z8Ekg&type=upcoming
+/v/mizuki?type=upcoming
+/v/mizuki?type=recent&month=2026-08
+/?group=ungrouped&type=live
+```
+
+前兩個網址等價：`/v/mizuki` 是 channel ID 的固定別名，兩者共用 timeline。參數如下：
+
+| 參數 | 值 |
+|---|---|
+| `channel` | YouTube channel ID；有 `/v/[slug]` 時以路徑指定的頻道為準 |
+| `group` | 完整團體名稱；`ungrouped` 代表個人勢 |
+| `type` | `live`、`upcoming`、`recent`（已完成）、`milestone`；省略為全部 |
+| `q` | 搜尋名稱或 handle，與其他條件取交集 |
+| `month` | 台北時區的 `YYYY-MM`，適用於全部、`recent`／`milestone` 的歷史瀏覽；省略時選最新有資料的月份 |
+
+「分享目前篩選」會複製完整條件，歷史模式包含實際顯示的月份；「分享這位 VTuber」只保留人物識別。有別名時優先分享 slug，其他頻道仍可用 channel ID 分享。資料會持續更新，連結不會凍結當下直播狀態。不存在的頻道或指定月份會顯示說明，不會靜默改成其他結果。
+
+「全部」的 `month` 只指定歷史紀錄的月份，直播、預定直播與未來里程碑仍顯示最新資料。類型上的數字是所有月份的總筆數；月份導覽另列當月筆數，歷史卡片會直接展開。
+
+固定別名與預覽資料存放在 [`web/data/channel-aliases.json`](web/data/channel-aliases.json)，格式為 `channelId → { slug, aliases, name, avatar }`。初始資料取自 2026-09-19 公開名冊；`name`／`avatar` 用於靜態分享預覽，頁面內容仍讀取最新快照。Slug 區分大小寫，初始 slug 採小寫；中文 alias 由 URL 編碼處理。
+
+- 新增別名：加入該頻道的資料並重新 build／部署；完成前可使用 `?channel=...`。
+- 更改主要 slug：把原本的 slug 留在 `aliases`，維持舊網址；別名不可重複使用於另一個頻道。
+- 更新預覽：修改 `name`／`avatar` 後重新部署；社群平台可能繼續使用自己的預覽快取。
+
+`generateStaticParams` 會產生所有主要 slug 與 aliases 的 HTML；每個入口都包含專屬 Open Graph／Twitter metadata，canonical 指向主要 slug。未知 slug 回傳 404。部署仍使用 `out/`，不需要新增執行期 API；直播資料刷新也不需要重建頁面。
+
+`npm run build` 會逐頁驗證匯出的 alias HTML 與分享 metadata，避免把預先產生的 404 當成成功頁面部署。
 
 ## 資料契約（v1.0.0）
 

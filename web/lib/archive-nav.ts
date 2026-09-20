@@ -4,8 +4,8 @@ import type {
   ArchiveIndex, ArchiveMonthSummary, Milestone, SnapshotChannel, TimelineItem,
 } from "./types";
 
-/** The two timeline kinds that read backwards, and so are served from the archive. */
-export type HistoryKind = "recent" | "milestone";
+/** History can show completed streams, milestones, or both in the all-types view. */
+export type HistoryKind = "recent" | "milestone" | "all";
 
 export interface ArchiveYear {
   year: string;
@@ -18,14 +18,15 @@ export interface ArchiveMonthCell {
   count: number;
 }
 
-function countOf(summary: ArchiveMonthSummary, kind: HistoryKind): number {
+export function archiveMonthCount(summary: ArchiveMonthSummary, kind: HistoryKind): number {
+  if (kind === "all") return summary.streams + summary.milestones;
   return kind === "recent" ? summary.streams : summary.milestones;
 }
 
 /** Newest first, and only months that actually hold something of this kind. */
 function stocked(index: ArchiveIndex, kind: HistoryKind): ArchiveMonthSummary[] {
   return index.months
-    .filter((summary) => countOf(summary, kind) > 0)
+    .filter((summary) => archiveMonthCount(summary, kind) > 0)
     .sort((left, right) => right.month.localeCompare(left.month));
 }
 
@@ -138,7 +139,7 @@ export function filterArchiveIndex(
 export function archiveYears(index: ArchiveIndex, kind: HistoryKind): ArchiveYear[] {
   const totals = new Map<string, number>();
   for (const summary of index.months) {
-    const count = countOf(summary, kind);
+    const count = archiveMonthCount(summary, kind);
     if (count <= 0) continue;
     const year = summary.month.slice(0, 4);
     totals.set(year, (totals.get(year) ?? 0) + count);
@@ -154,7 +155,7 @@ export function archiveYearMonths(
   kind: HistoryKind,
   year: string,
 ): ArchiveMonthCell[] {
-  const counts = new Map(index.months.map((summary) => [summary.month, countOf(summary, kind)]));
+  const counts = new Map(index.months.map((summary) => [summary.month, archiveMonthCount(summary, kind)]));
   return Array.from({ length: 12 }, (_, i) => {
     const month = `${year}-${String(i + 1).padStart(2, "0")}`;
     return { month, label: `${i + 1}月`, count: counts.get(month) ?? 0 };
@@ -178,7 +179,7 @@ export function stepArchiveMonth(
 }
 
 export function archiveTotal(index: ArchiveIndex, kind: HistoryKind): number {
-  return index.months.reduce((sum, summary) => sum + countOf(summary, kind), 0);
+  return index.months.reduce((sum, summary) => sum + archiveMonthCount(summary, kind), 0);
 }
 
 /**

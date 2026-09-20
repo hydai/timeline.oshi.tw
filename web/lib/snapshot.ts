@@ -1,14 +1,18 @@
 import type { ArchiveIndex, ArchiveMonth, Snapshot } from "./types";
+import { fetchCachedJson, type CacheOptions } from "./data-cache";
+import { taipeiDayKey } from "./time";
 
-async function fetchJson(url: string): Promise<unknown> {
-  const res = await fetch(url, { cache: "no-store" });
-  if (!res.ok) throw new Error(`snapshot fetch failed (${res.status})`);
-  return res.json();
-}
+const MINUTE = 60_000;
+const HOUR = 60 * MINUTE;
+const DAY = 24 * HOUR;
 
 /** Fetch the published snapshot. Fills missing arrays so the UI never crashes. */
-export async function fetchSnapshot(url: string): Promise<Snapshot> {
-  const raw = (await fetchJson(url)) as Partial<Snapshot>;
+export function fetchSnapshot(url: string, options?: CacheOptions<Snapshot>): Promise<Snapshot> {
+  return fetchCachedJson(url, parseSnapshot, { freshFor: MINUTE, maxAge: 15 * MINUTE, priority: 1 }, options);
+}
+
+function parseSnapshot(value: unknown): Snapshot {
+  const raw = value as Partial<Snapshot>;
   return {
     version: (raw.version ?? "1.0.0") as "1.0.0",
     generated_at: raw.generated_at ?? "",
@@ -33,8 +37,12 @@ export function archiveMonthUrl(indexUrl: string, month: string): string {
   return `${clean.slice(0, clean.lastIndexOf("/") + 1)}${month}.json`;
 }
 
-export async function fetchArchiveIndex(url: string): Promise<ArchiveIndex> {
-  const raw = (await fetchJson(url)) as Partial<ArchiveIndex>;
+export function fetchArchiveIndex(url: string, options?: CacheOptions<ArchiveIndex>): Promise<ArchiveIndex> {
+  return fetchCachedJson(url, parseArchiveIndex, { freshFor: 5 * MINUTE, maxAge: DAY, priority: 1 }, options);
+}
+
+function parseArchiveIndex(value: unknown): ArchiveIndex {
+  const raw = value as Partial<ArchiveIndex>;
   let facetsComplete = raw.facets === "channel";
   const months: ArchiveIndex["months"] = [];
   for (const month of Array.isArray(raw.months) ? raw.months : []) {
@@ -85,8 +93,16 @@ export async function fetchArchiveIndex(url: string): Promise<ArchiveIndex> {
   };
 }
 
-export async function fetchArchiveMonth(url: string): Promise<ArchiveMonth> {
-  const raw = (await fetchJson(url)) as Partial<ArchiveMonth>;
+export function fetchArchiveMonth(url: string, options?: CacheOptions<ArchiveMonth>): Promise<ArchiveMonth> {
+  const month = /\/(\d{4}-\d{2})\.json(?:[?#]|$)/.exec(url)?.[1];
+  const currentMonth = taipeiDayKey(new Date().toISOString()).slice(0, 7);
+  // Closed months can still change through backfills or removals; they expire too.
+  const freshFor = month && month < currentMonth ? HOUR : 5 * MINUTE;
+  return fetchCachedJson(url, parseArchiveMonth, { freshFor, maxAge: 7 * DAY }, options);
+}
+
+function parseArchiveMonth(value: unknown): ArchiveMonth {
+  const raw = value as Partial<ArchiveMonth>;
   if (!raw.month || !/^\d{4}-(0[1-9]|1[0-2])$/.test(raw.month)) {
     throw new Error("invalid archive month payload");
   }

@@ -34,7 +34,8 @@ twvtuber REST API ───────────┘         (Cron-triggered) 
   - Channels, every stream, and milestones are permanent in **D1** (`timeline-streams`). Private/deleted videos are hidden with tombstones instead of being physically deleted; R2 serves both `streams/v1/snapshot.json` and monthly files under `streams/v1/archive/`.
   - Token-gated manual triggers cover `POST /refresh?mode=heavy|light` and one-channel repair through `mode=backfill&channel=UC...&dry=0` (with an `X-Trigger-Token` header).
 - **`web/` — the frontend** (Next.js 16 static export, deployed to Cloudflare Pages)
-  - Fetches the current snapshot and lightweight archive index; monthly permanent records load only after selecting Completed or Milestones.
+  - Fetches the current snapshot and lightweight archive index. All always shows live/upcoming activity plus an expanded month of completed streams and milestones, with an older-month link at the bottom. Changing the history month keeps live/upcoming activity visible. The year/month picker appears only in Completed and Milestones.
+  - Reloads restore browser-cached data before background revalidation: snapshots stay fresh for 1 minute, indexes/current-month archives for 5 minutes, and older months for 1 hour. The page still checks for updates every 5 minutes. Stale data may be restored for up to 15 minutes (snapshot), 1 day (index), or 7 days (month); failed updates keep existing content visible with a retry. Storage is capped at 8 entries/~4 MB, with a network fallback when storage is unavailable. The header and home link are included in the static HTML.
 
 ## Tech stack
 
@@ -95,6 +96,35 @@ npm test
 ```
 
 Deploy to **Cloudflare Pages**: build command `npm run build`, output directory `out/`. Point the data source with `NEXT_PUBLIC_SNAPSHOT_URL`, or leave it unset to fall back to `https://data.oshi.tw/streams/v1/snapshot.json` (see [`web/.env.example`](web/.env.example)). Whatever host serves the snapshot must send `Access-Control-Allow-Origin`, since the browser fetches it cross-origin.
+
+## Shareable filters and channel aliases
+
+Filters are stored in the URL and restored on reload and browser back/forward navigation:
+
+```text
+/?channel=UCjv4bfP_67WLuPheS-Z8Ekg&type=upcoming
+/v/mizuki?type=upcoming
+/v/mizuki?type=recent&month=2026-08
+/?group=ungrouped&type=live
+```
+
+The first two URLs are equivalent. `/v/[slug]` resolves to a stable channel ID and uses the same timeline as the home page. Its channel takes precedence over a conflicting `channel` query parameter.
+
+Supported parameters are `channel` (YouTube channel ID), `group` (exact group name, or `ungrouped`), `type` (`live`, `upcoming`, `recent` for completed streams, or `milestone`), `q` (name/handle search), and `month` (`YYYY-MM`, Taipei months, for All, Completed, or Milestones history). Omitted filters mean all; omitted history months select the latest month with matching data. An explicit unavailable month or unknown channel shows an explanation instead of silently displaying different results.
+
+“Share current filters” includes the displayed history month; “Share this VTuber” includes only the channel. Sharing prefers a published alias and falls back to `?channel=...`. Stream data continues updating; these links are not frozen snapshots.
+
+In All, `month` scopes history only; live streams, upcoming streams, and future milestones still show current data. Type badges count all months, while the month navigator separately labels that month's count. Historical cards are expanded directly.
+
+[`web/data/channel-aliases.json`](web/data/channel-aliases.json) stores `channelId → { slug, aliases, name, avatar }`. The initial profiles use the public roster from 2026-09-19. Slugs are case-sensitive, initially lowercase; Unicode aliases are URL-encoded. `name` and `avatar` supply build-time previews while the UI fetches current data.
+
+- Add a profile and rebuild/deploy to publish a new alias. ID links work before the alias is deployed.
+- When changing the main slug, keep the old value in `aliases`. Never assign a published alias to another channel; duplicate aliases fail validation.
+- Update profile names/avatars and redeploy to refresh metadata. Social platforms may retain their own preview caches.
+
+All aliases are statically exported with personal Open Graph/Twitter metadata and the primary slug as canonical. Unknown slugs return 404. Continue deploying `out/`; no runtime API is required, and stream refreshes do not rebuild the frontend.
+
+`npm run build` also verifies each exported alias HTML file and its preview metadata, catching prerendered 404 pages before deployment.
 
 ## Data contracts (v1.0.0)
 

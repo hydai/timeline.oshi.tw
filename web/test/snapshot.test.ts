@@ -1,8 +1,9 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   archiveIndexUrl, archiveMonthUrl, fetchArchiveIndex, fetchArchiveMonth, fetchSnapshot,
 } from "@/lib/snapshot";
 
+beforeEach(() => localStorage.clear());
 afterEach(() => vi.restoreAllMocks());
 
 describe("fetchSnapshot", () => {

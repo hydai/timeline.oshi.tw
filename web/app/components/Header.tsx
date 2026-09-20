@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { Clock } from "lucide-react";
 import ThemeToggle from "./ThemeToggle";
 import { formatClock, formatDayHeading, formatRelativeTime, taipeiDayKey } from "@/lib/time";
@@ -32,9 +33,15 @@ export default function Header({ updatedAt, nowMs }: { updatedAt: string; nowMs:
   return (
     <header className="mb-4 flex items-end justify-between gap-4">
       <div>
-        <h1 className="text-xl font-black tracking-tight sm:text-[23px]"
-            style={{ backgroundImage: "linear-gradient(135deg, var(--accent-pink), var(--accent-blue))", WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent" }}>
-          timeline.oshi.tw
+        <h1 className="text-xl font-black tracking-tight sm:text-[23px]">
+          <Link
+            href="/"
+            aria-label="timeline.oshi.tw 首頁"
+            className="inline-block rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-pink"
+            style={{ backgroundImage: "linear-gradient(135deg, var(--accent-pink), var(--accent-blue))", WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent" }}
+          >
+            timeline.oshi.tw
+          </Link>
         </h1>
         {/* The wordmark says what the site is; the only thing worth adding is how
             fresh the data is, and only once there is data to describe. */}

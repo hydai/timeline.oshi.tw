@@ -187,6 +187,10 @@ export function buildTimelineFilterStats(
     }
   }
 
+  // A deep link may select a known channel with no activity in either source.
+  if (selection.selectedChannelId && channelDirectory.has(selection.selectedChannelId) && !countsByChannel.has(selection.selectedChannelId)) {
+    countsByChannel.set(selection.selectedChannelId, emptyKindCounts());
+  }
   const q = selection.query.trim().toLowerCase();
   const kindCounts = emptyKindCounts();
   for (const [channelId, counts] of countsByChannel) {

@@ -3,7 +3,7 @@ import { Search } from "lucide-react";
 
 export default function SearchBar({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   return (
-    <label className="flex h-11 min-w-0 flex-1 items-center gap-2 rounded-2xl bg-[var(--bg-surface-muted)] px-3.5 sm:max-w-[288px]">
+    <label className="flex h-11 w-full min-w-0 flex-none items-center gap-2 rounded-2xl bg-[var(--bg-surface-muted)] px-3.5 sm:w-auto sm:max-w-[288px] sm:flex-1">
       <Search size={16} className="flex-none text-text-secondary" aria-hidden />
       <input
         value={value}

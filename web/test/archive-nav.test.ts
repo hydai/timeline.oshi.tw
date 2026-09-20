@@ -40,6 +40,18 @@ describe("latestArchiveMonth", () => {
   it("has nothing to open when the archive is empty", () => {
     expect(latestArchiveMonth({ ...index, months: [] }, "recent")).toBeNull();
   });
+
+  it("navigates all history across months containing either streams or milestones", () => {
+    const mixed = { ...index, months: [
+      { month: "2026-09", streams: 0, milestones: 1 },
+      { month: "2026-08", streams: 2, milestones: 0 },
+      { month: "2026-07", streams: 3, milestones: 1 },
+    ] };
+    expect(latestArchiveMonth(mixed, "all")).toBe("2026-09");
+    expect(archiveTotal(mixed, "all")).toBe(7);
+    expect(stepArchiveMonth(mixed, "all", "2026-09", -1)).toBe("2026-08");
+    expect(archiveYearMonths(mixed, "all", "2026")[6]?.count).toBe(4);
+  });
 });
 
 describe("archiveYears", () => {

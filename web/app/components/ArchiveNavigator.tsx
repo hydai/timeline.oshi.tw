@@ -3,7 +3,7 @@
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import {
   archiveTotal, archiveYearMonths, archiveYears, formatArchiveMonth, latestArchiveMonth,
-  stepArchiveMonth, type HistoryKind,
+  stepArchiveMonth,
 } from "@/lib/archive-nav";
 import type { ArchiveIndex } from "@/lib/types";
 
@@ -39,7 +39,7 @@ export default function ArchiveNavigator({
   error,
 }: {
   index: ArchiveIndex;
-  kind: HistoryKind;
+  kind: "recent" | "milestone";
   month: string | null;
   onSelect: (month: string) => void;
   onRetry: () => void;
@@ -65,7 +65,9 @@ export default function ArchiveNavigator({
           <h2 id="archive-navigator-heading" className="text-[15px] font-extrabold text-text-primary">
             歷史封存
           </h2>
-          <span className="text-xs text-text-secondary">選一個月份，一次只放一個月進時間軸</span>
+          <span className="text-xs text-text-secondary">
+            選擇月份，查看當月完整紀錄
+          </span>
         </div>
         <span className="text-xs font-semibold text-text-secondary tabular-nums">
           共 {archiveTotal(index, kind).toLocaleString()} {unit}
@@ -145,7 +147,9 @@ export default function ArchiveNavigator({
             {formatArchiveMonth(current)}
           </div>
           <div className="text-xs text-text-secondary tabular-nums">
-            {loading ? "載入中…" : error ? "載入失敗" : `${count.toLocaleString()} ${unit} · 由新到舊`}
+            {loading ? "載入中…" : error ? "載入失敗" : (
+              <>當月 {count.toLocaleString()} {unit}<span className="hidden sm:inline"> · 由新到舊</span></>
+            )}
           </div>
         </div>
 
