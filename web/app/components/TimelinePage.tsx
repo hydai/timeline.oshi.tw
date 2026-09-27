@@ -23,7 +23,7 @@ import VTuberPicker from "./VTuberPicker";
 import TimelineTypeFilter from "./TimelineTypeFilter";
 import Timeline from "./Timeline";
 import ArchiveNavigator from "./ArchiveNavigator";
-import { Link as LinkIcon, Share2 } from "lucide-react";
+import ShareButton from "./ShareButton";
 import ChannelAvatar from "./ChannelAvatar";
 import { useShareLink } from "./useShareLink";
 import { useTimelineUrl } from "./useTimelineUrl";
@@ -285,18 +285,6 @@ function TimelineContent({ snap, archiveIndex, error, archiveError, nowMs, load 
                   <h2 className="truncate text-base font-extrabold text-text-primary">{selectedChannel.name}</h2>
                   <p className="text-xs text-text-secondary">直播動態與重要里程碑</p>
                 </div>
-                {channelHref && (
-                  <button
-                    type="button"
-                    aria-label="分享這位 VTuber"
-                    title="分享這位 VTuber"
-                    onClick={() => void share.copy(channelHref)}
-                    className="inline-flex h-10 flex-none items-center gap-1.5 rounded-pill bg-[var(--bg-surface-muted)] px-3 text-xs font-semibold text-text-secondary hover:text-text-primary focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-accent-pink"
-                  >
-                    <LinkIcon size={14} aria-hidden />
-                    <span className="hidden sm:inline">分享這位 VTuber</span>
-                  </button>
-                )}
               </div>
             )}
             {/* Where the sticky bar rests; scrolled to after a filter change. */}
@@ -323,15 +311,15 @@ function TimelineContent({ snap, archiveIndex, error, archiveError, nowMs, load 
                 <TimelineTypeFilter counts={kindCounts} selected={selectedKind} onSelect={(kind) => refilter({ selectedKind: kind })} />
               )}
               actions={(
-                <button
-                  type="button"
-                  aria-label="分享目前篩選"
-                  title="分享目前篩選"
-                  onClick={() => void share.copy(shareHref)}
-                  className="grid h-11 w-11 place-items-center rounded-2xl bg-[var(--bg-surface-muted)] text-text-secondary transition-colors hover:text-text-primary focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-accent-pink"
-                >
-                  <Share2 size={17} strokeWidth={2.2} aria-hidden />
-                </button>
+                // Keyed by the page as navigated: a menu left open on one page, or one view of it,
+                // must not greet you on the next. Not by shareHref, whose default month fills in
+                // once the archive loads — that would shut a menu for no move of the reader's.
+                <ShareButton
+                  key={timelineHref(selection)}
+                  viewHref={shareHref}
+                  channelHref={channelHref}
+                  onShare={(href) => void share.copy(href)}
+                />
               )}
             />
             {share.feedback}

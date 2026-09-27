@@ -820,9 +820,14 @@ describe("Home page", () => {
     window.history.replaceState(null, "", "/?channel=channel-mizuki&type=recent");
     render(<Home />);
     await waitFor(() => expect(screen.getByText("七月封存直播")).toBeInTheDocument());
-    await user.click(screen.getByRole("button", { name: "分享目前篩選" }));
+    // One share button on a VTuber's page; both links live in its menu.
+    expect(screen.getAllByRole("button", { name: /分享/ })).toHaveLength(1);
+    await user.click(screen.getByRole("button", { name: "分享" }));
+    await user.click(screen.getByRole("menuitem", { name: "分享目前篩選" }));
     expect(write).toHaveBeenLastCalledWith(`${window.location.origin}/?channel=channel-mizuki&type=recent&month=2026-07`);
-    await user.click(screen.getByRole("button", { name: "分享這位 VTuber" }));
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "分享" }));
+    await user.click(screen.getByRole("menuitem", { name: "分享這位 VTuber" }));
     expect(write).toHaveBeenLastCalledWith(`${window.location.origin}/?channel=channel-mizuki`);
   });
 
@@ -876,11 +881,47 @@ describe("Home page", () => {
     stubArchive();
     window.history.replaceState(null, "", "/?channel=channel-mizuki&type=upcoming");
     render(<Home />);
-    await waitFor(() => expect(screen.getByRole("button", { name: "分享這位 VTuber" })).toBeInTheDocument());
-    await user.click(screen.getByRole("button", { name: "分享這位 VTuber" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "分享" })).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: "分享" }));
+    await user.click(screen.getByRole("menuitem", { name: "分享這位 VTuber" }));
     expect(screen.getByLabelText("分享連結")).toHaveValue(`${window.location.origin}/?channel=channel-mizuki`);
+    expect(screen.getByLabelText("分享連結")).toHaveFocus();
     await user.click(screen.getByRole("button", { name: "全部類型" }));
     expect(screen.queryByLabelText("分享連結")).not.toBeInTheDocument();
+  });
+
+  it("does not bring the share menu back open on returning to a VTuber's page", async () => {
+    const user = userEvent.setup();
+    stubArchive();
+    window.history.replaceState(null, "", "/?type=upcoming");
+    render(<Home />);
+    await waitFor(() => expect(pickerTrigger()).toBeInTheDocument());
+    await pickVTuber("水樹");
+    await user.click(screen.getByRole("button", { name: "分享" }));
+    expect(screen.getByRole("menu", { name: "分享" })).toBeInTheDocument();
+
+    await act(async () => window.history.back());
+    await waitFor(() => expect(screen.getByRole("button", { name: "分享目前篩選" })).toBeInTheDocument());
+    await act(async () => window.history.forward());
+    await waitFor(() => expect(screen.getByRole("button", { name: "分享" })).toBeInTheDocument());
+
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+  });
+
+  it("dismisses the share menu when back or forward moves to another view of the same VTuber", async () => {
+    const user = userEvent.setup();
+    stubArchive();
+    window.history.replaceState(null, "", "/?channel=channel-mizuki");
+    render(<Home />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "預定直播" })).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: "預定直播" }));
+    await user.click(screen.getByRole("button", { name: "分享" }));
+    expect(screen.getByRole("menu", { name: "分享" })).toBeInTheDocument();
+
+    await act(async () => window.history.back());
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "全部類型" })).toHaveAttribute("aria-pressed", "true"));
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
   });
 
   it("lets a manually shown share link be dismissed", async () => {

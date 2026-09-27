@@ -224,8 +224,14 @@ body {
   }
 }
 
+/* A menu, like the share menu, drops down at every width. */
+.menu-panel {
+  animation: picker-dropdown-in 120ms ease-out;
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .picker-panel {
+  .picker-panel,
+  .menu-panel {
     animation: none;
   }
 }
