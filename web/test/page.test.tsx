@@ -832,4 +832,83 @@ describe("Home page", () => {
     await user.click(screen.getByRole("button", { name: "全部類型" }));
     expect(screen.queryByLabelText("分享連結")).not.toBeInTheDocument();
   });
+
+  it("lets a manually shown share link be dismissed", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(navigator.clipboard, "writeText").mockRejectedValue(new Error("denied"));
+    stubArchive();
+    render(<Home />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "分享目前篩選" })).toBeInTheDocument());
+
+    await user.click(screen.getByRole("button", { name: "分享目前篩選" }));
+    expect(screen.getByLabelText("分享連結")).toHaveFocus();
+    await user.click(screen.getByRole("button", { name: "關閉分享連結" }));
+
+    expect(screen.queryByLabelText("分享連結")).not.toBeInTheDocument();
+  });
+
+  it("reaches the share button after the filters, in the order a wide screen shows them", async () => {
+    stubArchive();
+    render(<Home />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "分享目前篩選" })).toBeInTheDocument());
+
+    const picker = pickerTrigger();
+    const lastType = screen.getByRole("button", { name: "重要里程碑" });
+    const share = screen.getByRole("button", { name: "分享目前篩選" });
+    expect(picker.compareDocumentPosition(lastType) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(lastType.compareDocumentPosition(share) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("drops a share result that arrives after the filters have changed", async () => {
+    const user = userEvent.setup();
+    let fail!: (error: Error) => void;
+    vi.spyOn(navigator.clipboard, "writeText").mockReturnValue(new Promise((_, reject) => { fail = reject; }));
+    stubArchive();
+    render(<Home />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "分享目前篩選" })).toBeInTheDocument());
+
+    await user.click(screen.getByRole("button", { name: "分享目前篩選" }));
+    await user.click(screen.getByRole("button", { name: "預定直播" }));
+    // The copy fails only now, for a link to filters that are no longer on screen.
+    await act(async () => fail(new Error("denied")));
+
+    expect(screen.queryByLabelText("分享連結")).not.toBeInTheDocument();
+    expect(screen.queryByText("請手動複製分享連結")).not.toBeInTheDocument();
+  });
+
+  it("does not pull focus to a late share link once the reader has moved on", async () => {
+    const user = userEvent.setup();
+    let fail!: (error: Error) => void;
+    vi.spyOn(navigator.clipboard, "writeText").mockReturnValue(new Promise((_, reject) => { fail = reject; }));
+    stubArchive();
+    render(<Home />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "分享目前篩選" })).toBeInTheDocument());
+
+    await user.click(screen.getByRole("button", { name: "分享目前篩選" }));
+    await user.click(pickerTrigger());
+    // The copy fails while the picker holds focus; the link still appears, but focus stays put.
+    await act(async () => fail(new Error("denied")));
+
+    expect(screen.getByLabelText("分享連結")).not.toHaveFocus();
+    expect(screen.getByRole("combobox", { name: "搜尋 VTuber" })).toHaveFocus();
+  });
+
+  it("reports only the latest of two overlapping shares", async () => {
+    const user = userEvent.setup();
+    const pending: Array<{ succeed: () => void; fail: (error: Error) => void }> = [];
+    vi.spyOn(navigator.clipboard, "writeText").mockImplementation(() => new Promise<void>((resolve, reject) => {
+      pending.push({ succeed: resolve, fail: reject });
+    }));
+    stubArchive();
+    render(<Home />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "分享目前篩選" })).toBeInTheDocument());
+
+    await user.click(screen.getByRole("button", { name: "分享目前篩選" }));
+    await user.click(screen.getByRole("button", { name: "分享目前篩選" }));
+    await act(async () => pending[1]!.succeed());
+    await act(async () => pending[0]!.fail(new Error("denied")));
+
+    expect(screen.getByText("已複製分享連結")).toBeInTheDocument();
+    expect(screen.queryByLabelText("分享連結")).not.toBeInTheDocument();
+  });
 });
