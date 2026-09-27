@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { formatClock, formatDayHeading, formatRelativeTime, taipeiDayKey } from "@/lib/time";
+import { formatCalendarDay, formatClock, formatDayHeading, formatRelativeTime, taipeiDayKey } from "@/lib/time";
 
 const now = Date.parse("2026-07-21T12:00:00Z");
 
@@ -78,5 +78,16 @@ describe("formatDayHeading", () => {
 
   it("labels a past day by date too", () => {
     expect(formatDayHeading("2026-08-20", nowTaipei)).toEqual({ title: "8/20", date: "週四" });
+  });
+});
+
+describe("formatCalendarDay", () => {
+  it("gives the month/day and the weekday, whatever the viewer's clock says", () => {
+    expect(formatCalendarDay("2026-10-03")).toEqual({ monthDay: "10/3", weekday: "週六" });
+    expect(formatCalendarDay("2027-01-01")).toEqual({ monthDay: "1/1", weekday: "週五" });
+  });
+
+  it("gives nothing for a malformed date", () => {
+    expect(formatCalendarDay("2026-10")).toEqual({ monthDay: "", weekday: "" });
   });
 });

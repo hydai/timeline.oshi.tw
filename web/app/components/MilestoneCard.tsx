@@ -3,7 +3,7 @@ import type { Milestone, SnapshotChannel } from "@/lib/types";
 import { daysUntil, describeDaysUntil, milestoneLabel } from "@/lib/milestones";
 import ChannelAvatar from "./ChannelAvatar";
 
-const MILESTONE_ICON: Record<Milestone["type"], LucideIcon> = {
+export const MILESTONE_ICON: Record<Milestone["type"], LucideIcon> = {
   debut: PartyPopper,
   anniversary: Cake,
   graduate: GraduationCap,

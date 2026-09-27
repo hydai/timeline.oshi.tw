@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
 import {
   archiveTotal, archiveYearMonths, archiveYears, formatArchiveMonth, itemArchiveMonth,
-  filterArchiveIndex, latestArchiveMonth, stepArchiveMonth, withPendingMilestones,
+  filterArchiveIndex, latestArchiveMonth, pastMilestoneIndex, stepArchiveMonth, withoutMilestones,
+  withPendingMilestones,
 } from "@/lib/archive-nav";
 import type { ArchiveIndex, Milestone, SnapshotChannel } from "@/lib/types";
 
@@ -211,6 +212,77 @@ describe("withPendingMilestones", () => {
   it("never touches the stream counts", () => {
     expect(archiveTotal(withPendingMilestones(index, pending, "2026-08-22"), "recent"))
       .toBe(archiveTotal(index, "recent"));
+  });
+});
+
+describe("withoutMilestones", () => {
+  // The milestone view lists today's milestones as upcoming; the history navigator must
+  // not count them a second time, wherever the archive already holds them.
+  const archive: ArchiveIndex = {
+    version: "1.0.0",
+    generated_at: "2026-09-27T05:00:00Z",
+    facets: "channel",
+    months: [{
+      month: "2026-09", streams: 4, milestones: 3,
+      by_channel: { a: { streams: 4, milestones: 1 }, b: { streams: 0, milestones: 2 } },
+    }],
+  };
+  const today: Milestone[] = [{ channelId: "a", type: "anniversary", date: "2026-09-27" }];
+
+  it("takes out a milestone the archive already counts", () => {
+    expect(withoutMilestones(archive, today, "2026-09-27").months[0]).toEqual({
+      month: "2026-09", streams: 4, milestones: 2,
+      by_channel: { a: { streams: 4, milestones: 0 }, b: { streams: 0, milestones: 2 } },
+    });
+  });
+
+  it("leaves the counts alone when the archive stops before that day", () => {
+    // Early morning in Taipei the archive's UTC cutoff is still yesterday.
+    expect(withoutMilestones(archive, today, "2026-09-26")).toEqual(archive);
+  });
+
+  it("leaves the month total alone for a milestone the archive never counted", () => {
+    // The snapshot can come from a later run than the index, after a channel was added.
+    const unknown: Milestone[] = [{ channelId: "z", type: "anniversary", date: "2026-09-27" }];
+    expect(withoutMilestones(archive, unknown, "2026-09-27")).toEqual(archive);
+  });
+});
+
+describe("pastMilestoneIndex", () => {
+  // What the snapshot carries on 9/27: one milestone gone by, today's, and one ahead.
+  const snapshot: Milestone[] = [
+    { channelId: "a", type: "anniversary", date: "2026-09-20" },
+    { channelId: "d", type: "anniversary", date: "2026-09-25" },
+    { channelId: "b", type: "anniversary", date: "2026-09-27" },
+    { channelId: "c", type: "anniversary", date: "2026-09-29" },
+  ];
+  const archive = (generatedAt: string, byChannel: Record<string, number>): ArchiveIndex => ({
+    version: "1.0.0",
+    generated_at: generatedAt,
+    facets: "channel",
+    months: [{
+      month: "2026-09",
+      streams: 0,
+      milestones: Object.values(byChannel).reduce((sum, count) => sum + count, 0),
+      by_channel: Object.fromEntries(Object.entries(byChannel).map(([id, milestones]) => [id, { streams: 0, milestones }])),
+    }],
+  });
+
+  it("takes today's out when the archive was written today", () => {
+    const past = pastMilestoneIndex(archive("2026-09-27T05:00:00Z", { a: 1, d: 1, b: 1 }), snapshot, "2026-09-27");
+    expect(past.months[0]!.milestones).toBe(2);
+    expect(past.months[0]!.by_channel!.b!.milestones).toBe(0);
+  });
+
+  it("has nothing to take out in the Taipei small hours, when the archive stops at yesterday", () => {
+    const written = archive("2026-09-26T20:00:00Z", { a: 1, d: 1 });
+    expect(pastMilestoneIndex(written, snapshot, "2026-09-27")).toEqual(written);
+  });
+
+  it("adds what has passed since a stale archive was written, and nothing from today on", () => {
+    const past = pastMilestoneIndex(archive("2026-09-24T05:00:00Z", { a: 1 }), snapshot, "2026-09-27");
+    expect(past.months[0]!.milestones).toBe(2);
+    expect(Object.keys(past.months[0]!.by_channel!).sort()).toEqual(["a", "d"]);
   });
 });
 
