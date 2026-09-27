@@ -26,11 +26,28 @@ export interface TimelineFilterSelection {
   selectedGroup: GroupFilterValue;
 }
 
+export interface GroupChoice {
+  value: string;
+  name: string;
+  /** VTubers in the group whose name or handle matches the search. */
+  memberCount: number;
+  /** Every VTuber in the group, whatever the search. */
+  size: number;
+}
+
+export interface VTuberChoice extends VTuberFilterOption {
+  group: string | null;
+  /**
+   * False only for a selected VTuber that the search or company leaves out: it is kept
+   * so the picker can still name it, but it is not one of the choices.
+   */
+  matches: boolean;
+}
+
 export interface TimelineFilterStats {
-  groups: GroupFilterOption[];
-  groupTotalCount: number;
-  vtubers: VTuberFilterOption[];
-  vtuberTotalCount: number;
+  groups: GroupChoice[];
+  memberTotalCount: number;
+  vtubers: VTuberChoice[];
   kindCounts: TimelineKindCounts;
 }
 
@@ -146,6 +163,8 @@ function channelMatchesGroup(
  * Build faceted counts from the current timeline plus permanent archive summaries.
  * Each control applies every other active filter but excludes its own dimension, so
  * switching a type/channel/group never turns all alternative choices into zeroes.
+ * Groups count members rather than items: a company's size does not change with the
+ * type or VTuber selected, only with what has been typed into the search.
  */
 export function buildTimelineFilterStats(
   items: TimelineItem[],
@@ -187,10 +206,6 @@ export function buildTimelineFilterStats(
     }
   }
 
-  // A deep link may select a known channel with no activity in either source.
-  if (selection.selectedChannelId && channelDirectory.has(selection.selectedChannelId) && !countsByChannel.has(selection.selectedChannelId)) {
-    countsByChannel.set(selection.selectedChannelId, emptyKindCounts());
-  }
   const q = selection.query.trim().toLowerCase();
   const kindCounts = emptyKindCounts();
   for (const [channelId, counts] of countsByChannel) {
@@ -200,53 +215,51 @@ export function buildTimelineFilterStats(
     for (const kind of Object.keys(kindCounts) as TimelineKind[]) kindCounts[kind] += counts[kind];
   }
 
-  const groupCounts = new Map<string, number>();
+  const groupSizes = new Map<string, number>();
+  const memberCounts = new Map<string, number>();
   for (const rawGroup of knownGroups) {
     const group = rawGroup.trim();
-    if (group) groupCounts.set(group, 0);
+    if (group) groupSizes.set(group, 0);
   }
-  groupCounts.set(UNGROUPED_FILTER_VALUE, 0);
-  let groupTotalCount = 0;
-  for (const [channelId, counts] of countsByChannel) {
-    const channel = channelDirectory.get(channelId);
-    if (!channel) continue;
-    if (selection.selectedChannelId && channelId !== selection.selectedChannelId) continue;
-    if (!channelMatchesQuery(channel, q)) continue;
-    const count = selection.selectedKind ? counts[selection.selectedKind] : totalKindCounts(counts);
+  let memberTotalCount = 0;
+  for (const channel of channelDirectory.values()) {
     const group = channel.group?.trim() || UNGROUPED_FILTER_VALUE;
-    groupCounts.set(group, (groupCounts.get(group) ?? 0) + count);
-    groupTotalCount += count;
+    groupSizes.set(group, (groupSizes.get(group) ?? 0) + 1);
+    if (!channelMatchesQuery(channel, q)) continue;
+    memberCounts.set(group, (memberCounts.get(group) ?? 0) + 1);
+    memberTotalCount += 1;
   }
-  const groups: GroupFilterOption[] = [
-    {
-      value: UNGROUPED_FILTER_VALUE,
-      name: "個人勢",
-      itemCount: groupCounts.get(UNGROUPED_FILTER_VALUE) ?? 0,
-    },
-    ...[...groupCounts.entries()]
-      .filter(([value]) => value !== UNGROUPED_FILTER_VALUE)
-      .map(([value, itemCount]) => ({ value, name: value, itemCount }))
-      .sort((left, right) => left.name.localeCompare(right.name, "zh-TW")),
-  ];
+  // Ordered by full size, not by the search-narrowed count, so typing never reshuffles them.
+  const groups: GroupChoice[] = [...groupSizes.entries()]
+    .filter(([value]) => value !== UNGROUPED_FILTER_VALUE)
+    .sort(([leftName, leftSize], [rightName, rightSize]) =>
+      rightSize - leftSize || leftName.localeCompare(rightName, "zh-TW"))
+    .map(([value, size]) => ({ value, name: value, memberCount: memberCounts.get(value) ?? 0, size }));
+  groups.push({
+    value: UNGROUPED_FILTER_VALUE,
+    name: "個人勢",
+    memberCount: memberCounts.get(UNGROUPED_FILTER_VALUE) ?? 0,
+    size: groupSizes.get(UNGROUPED_FILTER_VALUE) ?? 0,
+  });
 
-  const vtubers: VTuberFilterOption[] = [];
-  let vtuberTotalCount = 0;
-  for (const [channelId, counts] of countsByChannel) {
-    const channel = channelDirectory.get(channelId);
-    if (!channel) continue;
+  // Every known VTuber matching the search and company is listed, including one with no
+  // activity; a zero count tells the picker there is nothing of the selected kind to show.
+  const vtubers: VTuberChoice[] = [];
+  for (const [channelId, channel] of channelDirectory) {
     const matchesOtherFilters = channelMatchesQuery(channel, q) &&
       channelMatchesGroup(channel, selection.selectedGroup);
     if (!matchesOtherFilters && channelId !== selection.selectedChannelId) continue;
+    const counts = countsByChannel.get(channelId) ?? emptyKindCounts();
     const itemCount = matchesOtherFilters
       ? selection.selectedKind ? counts[selection.selectedKind] : totalKindCounts(counts)
       : 0;
-    if (matchesOtherFilters) vtuberTotalCount += itemCount;
-    if (itemCount === 0 && channelId !== selection.selectedChannelId) continue;
     vtubers.push({
       channelId,
       name: channel.name,
       avatar: channel.avatar,
+      group: channel.group?.trim() || null,
       itemCount,
+      matches: matchesOtherFilters,
     });
   }
   vtubers.sort(
@@ -254,7 +267,7 @@ export function buildTimelineFilterStats(
       right.itemCount - left.itemCount || left.name.localeCompare(right.name, "zh-TW"),
   );
 
-  return { groups, groupTotalCount, vtubers, vtuberTotalCount, kindCounts };
+  return { groups, memberTotalCount, vtubers, kindCounts };
 }
 
 export function filterTimeline(

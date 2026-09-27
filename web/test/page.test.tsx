@@ -21,6 +21,24 @@ const at = (offsetMs: number) => new Date(Date.now() + offsetMs).toISOString();
  */
 const todayTaipei = () => `${taipeiDayKey(new Date().toISOString())}T02:00:00Z`;
 
+/** The VTuber picker's trigger; its name carries the current selection. */
+const pickerTrigger = () => screen.getByRole("button", { name: /^VTuber 篩選/ });
+async function openPicker() {
+  if (!screen.queryByRole("dialog", { name: "選擇 VTuber 或團體" })) await userEvent.click(pickerTrigger());
+}
+async function pickVTuber(name: string) {
+  await openPicker();
+  await userEvent.click(screen.getByRole("option", { name }));
+}
+async function pickGroup(name: string) {
+  await openPicker();
+  await userEvent.click(screen.getByRole("button", { name }));
+}
+async function searchFor(text: string) {
+  await openPicker();
+  await userEvent.type(screen.getByLabelText("搜尋 VTuber"), text);
+}
+
 const filterFixture = {
   version: "1.0.0",
   generated_at: "2026-07-21T18:40:41.302Z",
@@ -111,7 +129,7 @@ describe("Home page", () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(fixture), { status: 200 })));
     render(<Home />);
     expect(screen.getByText("載入中…")).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByLabelText("搜尋 VTuber")).toBeInTheDocument());
+    await waitFor(() => expect(pickerTrigger()).toBeInTheDocument());
     await waitFor(() => expect(screen.getAllByRole("link").length).toBeGreaterThan(0));
   });
 
@@ -130,41 +148,122 @@ describe("Home page", () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(fixture), { status: 200 })));
     await userEvent.click(retryButton);
 
-    await waitFor(() => expect(screen.getByLabelText("搜尋 VTuber")).toBeInTheDocument());
+    await waitFor(() => expect(pickerTrigger()).toBeInTheDocument());
   });
 
   it("filters the river by search query", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(fixture), { status: 200 })));
     render(<Home />);
-    await waitFor(() => expect(screen.getByLabelText("搜尋 VTuber")).toBeInTheDocument());
+    await waitFor(() => expect(pickerTrigger()).toBeInTheDocument());
     const before = screen.getAllByRole("link").length;
-    await userEvent.type(screen.getByLabelText("搜尋 VTuber"), "zzzznotarealname");
+    await searchFor("zzzznotarealname");
     await waitFor(() => expect(screen.queryByText(/沒有符合的直播動態/)).toBeInTheDocument());
     expect(screen.queryAllByRole("link").length).toBeLessThan(before);
   });
 
-  it("filters the river by VTuber and restores every channel with 全部", async () => {
+  it("returns to the top of the results after a filter change made far down the rail", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify(typeFilterFixture), { status: 200 })),
+    );
+    render(<Home />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "預定直播" })).toBeInTheDocument());
+    const scroll = vi.spyOn(Element.prototype, "scrollIntoView");
+
+    // Still near the top: the new results are already in view, so nothing moves.
+    await userEvent.click(screen.getByRole("button", { name: "預定直播" }));
+    expect(scroll).not.toHaveBeenCalled();
+
+    // Scrolled far down the rail: jump back so the new results start in view.
+    vi.spyOn(Element.prototype, "getBoundingClientRect").mockReturnValue(new DOMRect(0, -2000, 300, 40));
+    await userEvent.click(screen.getByRole("button", { name: "重要里程碑" }));
+    expect(scroll).toHaveBeenCalledWith({ block: "start" });
+  });
+
+  it("offers a way back from a type with nothing in it", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify(filterFixture), { status: 200 })),
+    );
+    window.history.replaceState(null, "", "/?type=live");
+    render(<Home />);
+    await waitFor(() => expect(screen.getByText("目前沒有符合的直播動態")).toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: "改看所有 VTuber" })).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "改看全部類型" }));
+
+    expect(screen.getByRole("link", { name: /水樹的直播/ })).toBeInTheDocument();
+    expect(window.location.search).toBe("");
+  });
+
+  it("offers a way back from a search with nothing in it", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify(filterFixture), { status: 200 })),
+    );
+    window.history.replaceState(null, "", "/?q=zzzznotarealname&type=upcoming");
+    render(<Home />);
+    await waitFor(() => expect(screen.getByText("目前沒有符合的直播動態")).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole("button", { name: "改看所有 VTuber" }));
+
+    expect(screen.getByRole("link", { name: /Gabu 的直播/ })).toBeInTheDocument();
+    expect(window.location.search).toBe("?type=upcoming");
+  });
+
+  it("filters the river by VTuber and restores every channel", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => new Response(JSON.stringify(filterFixture), { status: 200 })),
     );
     render(<Home />);
 
-    await waitFor(() => expect(screen.getByRole("button", { name: "VTuber 篩選" })).toBeInTheDocument());
+    await waitFor(() => expect(pickerTrigger()).toBeInTheDocument());
     expect(screen.getByRole("link", { name: /水樹的直播/ })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Gabu 的直播/ })).toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole("button", { name: "VTuber 篩選" }));
-    await userEvent.click(screen.getByRole("button", { name: "水樹" }));
+    await pickVTuber("水樹");
 
     expect(screen.getByRole("link", { name: /水樹的直播/ })).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /Gabu 的直播/ })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "VTuber 篩選" })).toHaveTextContent("水樹");
+    expect(pickerTrigger()).toHaveTextContent("水樹");
 
-    await userEvent.click(screen.getByRole("button", { name: "VTuber 篩選" }));
-    await userEvent.click(screen.getByRole("button", { name: "全部" }));
+    await pickVTuber("全部 VTuber");
 
     expect(screen.getByRole("link", { name: /水樹的直播/ })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Gabu 的直播/ })).toBeInTheDocument();
+  });
+
+  it("finds a VTuber by search, then lets the search go once one is chosen", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify(filterFixture), { status: 200 })),
+    );
+    render(<Home />);
+    await waitFor(() => expect(pickerTrigger()).toBeInTheDocument());
+
+    await searchFor("gab");
+    expect(screen.queryByRole("option", { name: "水樹" })).not.toBeInTheDocument();
+    await userEvent.keyboard("{Enter}");
+
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(pickerTrigger()).toHaveTextContent("Gabu");
+    expect(new URLSearchParams(window.location.search).get("channel")).toBe("channel-gabu");
+    expect(new URLSearchParams(window.location.search).has("q")).toBe(false);
+  });
+
+  it("clears the VTuber and company together from the picker", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify(filterFixture), { status: 200 })),
+    );
+    window.history.replaceState(null, "", "/?group=%E5%AD%90%E5%8D%88%E8%A8%88%E7%95%AB&channel=channel-mizuki");
+    render(<Home />);
+    await waitFor(() => expect(pickerTrigger()).toHaveTextContent("水樹"));
+
+    await userEvent.click(screen.getByRole("button", { name: "清除 VTuber 與團體篩選" }));
+
+    expect(window.location.search).toBe("");
     expect(screen.getByRole("link", { name: /Gabu 的直播/ })).toBeInTheDocument();
   });
 
@@ -175,35 +274,62 @@ describe("Home page", () => {
     );
     render(<Home />);
 
-    await waitFor(() => expect(screen.getByRole("button", { name: "所屬團體篩選" })).toBeInTheDocument());
-    await userEvent.click(screen.getByRole("button", { name: "所屬團體篩選" }));
-    await userEvent.click(screen.getByRole("button", { name: "子午計畫" }));
+    await waitFor(() => expect(pickerTrigger()).toBeInTheDocument());
+    await pickGroup("子午計畫");
 
     expect(screen.getByRole("link", { name: /水樹的直播/ })).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /Gabu 的直播/ })).not.toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole("button", { name: "VTuber 篩選" }));
-    expect(screen.getByRole("button", { name: "水樹" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Gabu" })).not.toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "水樹" }));
-    expect(screen.getByRole("button", { name: "VTuber 篩選" })).toHaveTextContent("水樹");
+    // The picker stays open on the company's members.
+    expect(screen.getByRole("option", { name: "水樹" })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "Gabu" })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("option", { name: "水樹" }));
+    expect(pickerTrigger()).toHaveTextContent("水樹");
 
     // Re-picking the same company must not disturb the channel selection.
-    await userEvent.click(screen.getByRole("button", { name: "所屬團體篩選" }));
-    await userEvent.click(screen.getByRole("button", { name: "子午計畫" }));
-    expect(screen.getByRole("button", { name: "VTuber 篩選" })).toHaveTextContent("水樹");
+    await pickGroup("子午計畫");
+    expect(pickerTrigger()).toHaveTextContent("水樹");
 
-    await userEvent.click(screen.getByRole("button", { name: "所屬團體篩選" }));
-    await userEvent.click(screen.getByRole("button", { name: "個人勢" }));
+    await pickGroup("個人勢");
 
     expect(screen.queryByRole("link", { name: /水樹的直播/ })).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Gabu 的直播/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "VTuber 篩選" })).toHaveTextContent("VTuber");
+    expect(pickerTrigger()).toHaveTextContent("個人勢");
+    expect(pickerTrigger()).not.toHaveTextContent("水樹");
 
-    await userEvent.click(screen.getByRole("button", { name: "所屬團體篩選" }));
-    await userEvent.click(screen.getByRole("button", { name: "全部團體" }));
+    await pickGroup("全部團體");
     expect(screen.getByRole("link", { name: /水樹的直播/ })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Gabu 的直播/ })).toBeInTheDocument();
+  });
+
+  it("switches to a company typed into the search", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify(filterFixture), { status: 200 })),
+    );
+    render(<Home />);
+    await waitFor(() => expect(pickerTrigger()).toBeInTheDocument());
+
+    await searchFor("子午");
+    await userEvent.click(screen.getByRole("option", { name: "子午計畫" }));
+
+    const params = new URLSearchParams(window.location.search);
+    expect(params.get("group")).toBe("子午計畫");
+    expect(params.has("q")).toBe(false);
+    expect(screen.getByRole("link", { name: /水樹的直播/ })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /Gabu 的直播/ })).not.toBeInTheDocument();
+  });
+
+  it("shows a search that still narrows a linked VTuber", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify(filterFixture), { status: 200 })),
+    );
+    window.history.replaceState(null, "", "/?channel=channel-gabu&q=%E6%B0%B4");
+    render(<Home />);
+
+    await waitFor(() => expect(pickerTrigger()).toHaveTextContent("Gabu"));
+    expect(pickerTrigger()).toHaveTextContent("「水」");
   });
 
   it("shows current activity and expanded history together in all types", async () => {
@@ -334,7 +460,7 @@ describe("Home page", () => {
     render(<Home />);
     await waitFor(() => expect(screen.getByText("六月封存直播")).toBeInTheDocument());
     expect(screen.getByRole("button", { name: "全部類型" })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByRole("button", { name: "VTuber 篩選" })).toHaveTextContent("Gabu");
+    expect(pickerTrigger()).toHaveTextContent("Gabu");
     expect(screen.queryByText("七月封存直播")).not.toBeInTheDocument();
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -393,8 +519,7 @@ describe("Home page", () => {
     await waitFor(() => expect(screen.getByText("七月封存直播")).toBeInTheDocument());
     expect(screen.getByText("現在正在直播")).toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole("button", { name: "VTuber 篩選" }));
-    await userEvent.click(screen.getByRole("button", { name: "Gabu" }));
+    await pickVTuber("Gabu");
 
     await waitFor(() => expect(screen.getByText("六月封存直播")).toBeInTheDocument());
     expect(screen.getByRole("button", { name: "全部類型" })).toHaveAttribute("aria-pressed", "true");
@@ -512,7 +637,7 @@ describe("Home page", () => {
     const fetchMock = stubArchive();
     render(<Home />);
 
-    await waitFor(() => expect(screen.getByRole("button", { name: "已完成直播" })).toHaveTextContent("2"));
+    await waitFor(() => expect(screen.getByRole("button", { name: "已完成直播" })).toBeInTheDocument());
     await userEvent.click(screen.getByRole("button", { name: "已完成直播" }));
 
     await waitFor(() => expect(screen.getByText("七月封存直播")).toBeInTheDocument());
@@ -525,14 +650,11 @@ describe("Home page", () => {
     stubArchive();
     render(<Home />);
 
-    await waitFor(() => expect(screen.getByRole("button", { name: "VTuber 篩選" })).toBeInTheDocument());
-    await userEvent.click(screen.getByRole("button", { name: "VTuber 篩選" }));
-    await userEvent.click(screen.getByRole("button", { name: "水樹" }));
+    await waitFor(() => expect(pickerTrigger()).toBeInTheDocument());
+    await pickVTuber("水樹");
 
     expect(screen.getByRole("button", { name: "正在直播" })).toHaveTextContent("1");
     expect(screen.getByRole("button", { name: "預定直播" })).toHaveTextContent("0");
-    expect(screen.getByRole("button", { name: "已完成直播" })).toHaveTextContent("1");
-    expect(screen.getByRole("button", { name: "重要里程碑" })).toHaveTextContent("0");
 
     await userEvent.click(screen.getByRole("button", { name: "已完成直播" }));
 
@@ -649,7 +771,7 @@ describe("Home page", () => {
     render(<Home />);
 
     await waitFor(() => expect(screen.getByText("六月封存直播")).toBeInTheDocument());
-    expect(screen.getByRole("button", { name: "VTuber 篩選" })).toHaveTextContent("Gabu");
+    expect(pickerTrigger()).toHaveTextContent("Gabu");
     expect(monthRequests(fetchMock, "2026-07")).toBe(0);
     expect(window.location.search).toContain("month=2026-06");
   });
@@ -716,8 +838,7 @@ describe("Home page", () => {
     await waitFor(() => expect(screen.getByText("水樹的直播")).toBeInTheDocument());
     expect(screen.queryByText("Gabu 的直播")).not.toBeInTheDocument();
     expect(window.location.search).toBe("?type=upcoming");
-    await userEvent.click(screen.getByRole("button", { name: "VTuber 篩選" }));
-    await userEvent.click(screen.getByRole("button", { name: "全部" }));
+    await pickVTuber("全部 VTuber");
     expect(window.location.pathname).toBe("/");
     expect(window.location.search).toBe("?type=upcoming");
     expect(screen.getByText("Gabu 的直播")).toBeInTheDocument();
@@ -727,9 +848,9 @@ describe("Home page", () => {
     stubArchive();
     window.history.replaceState(null, "", "/?utm_source=campaign");
     render(<Home />);
-    await waitFor(() => expect(screen.getByLabelText("搜尋 VTuber")).toBeInTheDocument());
+    await waitFor(() => expect(pickerTrigger()).toBeInTheDocument());
     const length = window.history.length;
-    await userEvent.type(screen.getByLabelText("搜尋 VTuber"), "Gabu ch");
+    await searchFor("Gabu ch");
     expect(screen.getByLabelText("搜尋 VTuber")).toHaveValue("Gabu ch");
     expect(new URLSearchParams(window.location.search).get("q")).toBe("Gabu ch");
     expect(new URLSearchParams(window.location.search).get("utm_source")).toBe("campaign");
@@ -744,7 +865,7 @@ describe("Home page", () => {
     ), { status: 200 })));
     window.history.replaceState(null, "", "/?channel=channel-mizuki");
     render(<Home />);
-    await waitFor(() => expect(screen.getByRole("button", { name: "VTuber 篩選" })).toHaveTextContent("水樹"));
+    await waitFor(() => expect(pickerTrigger()).toHaveTextContent("水樹"));
     expect(screen.getByText("目前沒有符合的直播動態")).toBeInTheDocument();
     expect(screen.queryByText(/找不到這個 VTuber/)).not.toBeInTheDocument();
   });
@@ -759,6 +880,85 @@ describe("Home page", () => {
     await user.click(screen.getByRole("button", { name: "分享這位 VTuber" }));
     expect(screen.getByLabelText("分享連結")).toHaveValue(`${window.location.origin}/?channel=channel-mizuki`);
     await user.click(screen.getByRole("button", { name: "全部類型" }));
+    expect(screen.queryByLabelText("分享連結")).not.toBeInTheDocument();
+  });
+
+  it("lets a manually shown share link be dismissed", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(navigator.clipboard, "writeText").mockRejectedValue(new Error("denied"));
+    stubArchive();
+    render(<Home />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "分享目前篩選" })).toBeInTheDocument());
+
+    await user.click(screen.getByRole("button", { name: "分享目前篩選" }));
+    expect(screen.getByLabelText("分享連結")).toHaveFocus();
+    await user.click(screen.getByRole("button", { name: "關閉分享連結" }));
+
+    expect(screen.queryByLabelText("分享連結")).not.toBeInTheDocument();
+  });
+
+  it("reaches the share button after the filters, in the order a wide screen shows them", async () => {
+    stubArchive();
+    render(<Home />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "分享目前篩選" })).toBeInTheDocument());
+
+    const picker = pickerTrigger();
+    const lastType = screen.getByRole("button", { name: "重要里程碑" });
+    const share = screen.getByRole("button", { name: "分享目前篩選" });
+    expect(picker.compareDocumentPosition(lastType) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(lastType.compareDocumentPosition(share) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("drops a share result that arrives after the filters have changed", async () => {
+    const user = userEvent.setup();
+    let fail!: (error: Error) => void;
+    vi.spyOn(navigator.clipboard, "writeText").mockReturnValue(new Promise((_, reject) => { fail = reject; }));
+    stubArchive();
+    render(<Home />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "分享目前篩選" })).toBeInTheDocument());
+
+    await user.click(screen.getByRole("button", { name: "分享目前篩選" }));
+    await user.click(screen.getByRole("button", { name: "預定直播" }));
+    // The copy fails only now, for a link to filters that are no longer on screen.
+    await act(async () => fail(new Error("denied")));
+
+    expect(screen.queryByLabelText("分享連結")).not.toBeInTheDocument();
+    expect(screen.queryByText("請手動複製分享連結")).not.toBeInTheDocument();
+  });
+
+  it("does not pull focus to a late share link once the reader has moved on", async () => {
+    const user = userEvent.setup();
+    let fail!: (error: Error) => void;
+    vi.spyOn(navigator.clipboard, "writeText").mockReturnValue(new Promise((_, reject) => { fail = reject; }));
+    stubArchive();
+    render(<Home />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "分享目前篩選" })).toBeInTheDocument());
+
+    await user.click(screen.getByRole("button", { name: "分享目前篩選" }));
+    await user.click(pickerTrigger());
+    // The copy fails while the picker holds focus; the link still appears, but focus stays put.
+    await act(async () => fail(new Error("denied")));
+
+    expect(screen.getByLabelText("分享連結")).not.toHaveFocus();
+    expect(screen.getByRole("combobox", { name: "搜尋 VTuber" })).toHaveFocus();
+  });
+
+  it("reports only the latest of two overlapping shares", async () => {
+    const user = userEvent.setup();
+    const pending: Array<{ succeed: () => void; fail: (error: Error) => void }> = [];
+    vi.spyOn(navigator.clipboard, "writeText").mockImplementation(() => new Promise<void>((resolve, reject) => {
+      pending.push({ succeed: resolve, fail: reject });
+    }));
+    stubArchive();
+    render(<Home />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "分享目前篩選" })).toBeInTheDocument());
+
+    await user.click(screen.getByRole("button", { name: "分享目前篩選" }));
+    await user.click(screen.getByRole("button", { name: "分享目前篩選" }));
+    await act(async () => pending[1]!.succeed());
+    await act(async () => pending[0]!.fail(new Error("denied")));
+
+    expect(screen.getByText("已複製分享連結")).toBeInTheDocument();
     expect(screen.queryByLabelText("分享連結")).not.toBeInTheDocument();
   });
 });

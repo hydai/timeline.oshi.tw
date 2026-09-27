@@ -1,6 +1,9 @@
 @import "tailwindcss" source("./");
 
 @custom-variant dark (&:where(.dark, .dark *));
+/* Room for the VTuber picker to drop down; below this it rises as a bottom sheet
+   instead (VTuberPicker's SHEET_MEDIA is the complement). */
+@custom-variant dropdown (@media (min-width: 640px) and (min-height: 560px));
 
 @theme inline {
   --font-sans: var(--font-primary);
@@ -70,6 +73,14 @@ html {
   --text-tertiary: #94A3B8;
   --text-filter-muted: #526175;
   --text-on-accent: #FFFFFF;
+  /* Accent hues dark enough to carry small text at WCAG AA (>= 4.5:1). */
+  --text-accent-pink: #DB2777;
+  --text-accent-blue: #2563EB;
+  --text-accent-purple: #9333EA;
+
+  /* The raised thumb of a segmented control. */
+  --bg-segment-active: #FFFFFF;
+  --shadow-segment: 0 1px 2px rgba(15, 23, 42, 0.10), 0 1px 1px rgba(15, 23, 42, 0.06);
 
   --border-default: #E2E8F0;
   --border-glass: #FFFFFF66;
@@ -115,6 +126,12 @@ html.dark {
   --text-tertiary: #6B7280;
   --text-filter-muted: #B6BCC8;
   --text-on-accent: #FFFFFF;
+  --text-accent-pink: #F9A8D4;
+  --text-accent-blue: #93C5FD;
+  --text-accent-purple: #D8B4FE;
+
+  --bg-segment-active: rgba(255, 255, 255, 0.12);
+  --shadow-segment: 0 1px 2px rgba(0, 0, 0, 0.40);
 
   --border-default: rgba(255, 255, 255, 0.10);
   --border-glass: rgba(255, 255, 255, 0.08);
@@ -158,15 +175,12 @@ body {
   backdrop-filter: blur(12px);
 }
 
+/* The look of a floating panel; each panel sets its own size and scrolling. */
 .popover-surface {
   /* A solid fallback keeps the menu legible in older in-app browsers. */
   background: var(--bg-surface);
   border: 1px solid var(--border-popover);
   box-shadow: 0 16px 40px var(--shadow-popover), inset 0 1px 0 var(--highlight-popover);
-  max-width: calc(100vw - 32px);
-  max-height: min(360px, 60dvh);
-  overflow-y: auto;
-  overscroll-behavior: contain;
 }
 
 @supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
@@ -182,6 +196,37 @@ body {
     background: var(--bg-surface);
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
+  }
+}
+
+/* The VTuber picker rises as a sheet on a phone and drops down elsewhere. */
+@keyframes picker-sheet-in {
+  from {
+    transform: translateY(32px);
+    opacity: 0;
+  }
+}
+
+@keyframes picker-dropdown-in {
+  from {
+    transform: translateY(-4px);
+    opacity: 0;
+  }
+}
+
+.picker-panel {
+  animation: picker-sheet-in 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@media (min-width: 640px) {
+  .picker-panel {
+    animation: picker-dropdown-in 120ms ease-out;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .picker-panel {
+    animation: none;
   }
 }
 

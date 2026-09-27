@@ -15,16 +15,20 @@ import {
 import type { ArchiveIndex, ArchiveMonth, Snapshot, TimelineItem } from "@/lib/types";
 import type { RailMode } from "@/lib/rail";
 import { taipeiDayKey } from "@/lib/time";
+import { buildChannelStatuses } from "@/lib/channel-status";
 import Header from "./Header";
 import TimelineLoading from "./TimelineLoading";
 import CommandBar from "./CommandBar";
+import VTuberPicker from "./VTuberPicker";
+import TimelineTypeFilter from "./TimelineTypeFilter";
 import Timeline from "./Timeline";
 import ArchiveNavigator from "./ArchiveNavigator";
+import { Link as LinkIcon, Share2 } from "lucide-react";
 import ChannelAvatar from "./ChannelAvatar";
-import ShareControls from "./ShareControls";
+import { useShareLink } from "./useShareLink";
 import { useTimelineUrl } from "./useTimelineUrl";
 import { channelProfiles } from "@/lib/channel-aliases";
-import { EMPTY_SELECTION, isArchiveMonth, timelineHref } from "@/lib/timeline-url";
+import { EMPTY_SELECTION, isArchiveMonth, timelineHref, type TimelineSelection } from "@/lib/timeline-url";
 
 const SNAPSHOT_URL = process.env.NEXT_PUBLIC_SNAPSHOT_URL ?? "https://data.oshi.tw/streams/v1/snapshot.json";
 const ARCHIVE_INDEX_URL = archiveIndexUrl(SNAPSHOT_URL);
@@ -109,8 +113,18 @@ function TimelineContent({ snap, archiveIndex, error, archiveError, nowMs, load 
   const [archiveLoading, setArchiveLoading] = useState(false);
   const [monthError, setMonthError] = useState(false);
   const railRef = useRef<HTMLDivElement>(null);
+  const filtersTopRef = useRef<HTMLDivElement>(null);
+
+  // A filter changed far down the rail would otherwise leave the reader in the middle of
+  // the new results. Typing a search is left alone, so the page never jumps mid-word.
+  const refilter = (patch: Partial<TimelineSelection>) => {
+    update(patch);
+    const top = filtersTopRef.current;
+    if (top && top.getBoundingClientRect().top < 0) top.scrollIntoView({ block: "start" });
+  };
 
   const snapshotTimeline = useMemo(() => snap ? buildTimeline(snap) : [], [snap]);
+  const channelStatuses = useMemo(() => buildChannelStatuses(snapshotTimeline, nowMs), [nowMs, snapshotTimeline]);
   const today = taipeiDayKey(new Date(nowMs).toISOString());
   // All always includes both current activity and monthly history. The month only
   // scopes history; changing it must never hide a live stream or an upcoming event.
@@ -238,6 +252,20 @@ function TimelineContent({ snap, archiveIndex, error, archiveError, nowMs, load 
   const shareHref = timelineHref({ ...selection, month: historyKind ? pickedMonth ?? archiveMonth : null });
   const channelHref = selectedChannelId && !unknownChannel
     ? timelineHref({ ...EMPTY_SELECTION, selectedChannelId }) : null;
+  const share = useShareLink(`${shareHref} ${channelHref ?? ""}`);
+
+  const clearWho = () => refilter({ query: "", selectedGroup: null, selectedChannelId: null });
+  const whoFiltered = Boolean(query || selectedGroup || selectedChannelId);
+  const emptyAction = "rounded-pill bg-[var(--bg-surface-muted)] px-4 py-2 text-sm font-semibold text-text-primary hover:bg-[var(--bg-popover-hover)] focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-accent-pink";
+  // A dead end names its own way out: loosen whichever filter is doing the narrowing.
+  const emptyActions = selectedKind || whoFiltered ? (
+    <>
+      {selectedKind && (
+        <button type="button" className={emptyAction} onClick={() => refilter({ selectedKind: null })}>改看全部類型</button>
+      )}
+      {whoFiltered && <button type="button" className={emptyAction} onClick={clearWho}>改看所有 VTuber</button>}
+    </>
+  ) : undefined;
 
   return (
     <>
@@ -253,31 +281,60 @@ function TimelineContent({ snap, archiveIndex, error, archiveError, nowMs, load 
             {selectedChannel && (
               <div className="mb-3 flex items-center gap-3">
                 <ChannelAvatar key={selectedChannelId} src={selectedChannel.avatar} name={selectedChannel.name} size={44} />
-                <div className="min-w-0">
-                  <h2 className="text-base font-extrabold text-text-primary">{selectedChannel.name}</h2>
+                <div className="min-w-0 flex-1">
+                  <h2 className="truncate text-base font-extrabold text-text-primary">{selectedChannel.name}</h2>
                   <p className="text-xs text-text-secondary">直播動態與重要里程碑</p>
                 </div>
+                {channelHref && (
+                  <button
+                    type="button"
+                    aria-label="分享這位 VTuber"
+                    title="分享這位 VTuber"
+                    onClick={() => void share.copy(channelHref)}
+                    className="inline-flex h-10 flex-none items-center gap-1.5 rounded-pill bg-[var(--bg-surface-muted)] px-3 text-xs font-semibold text-text-secondary hover:text-text-primary focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-accent-pink"
+                  >
+                    <LinkIcon size={14} aria-hidden />
+                    <span className="hidden sm:inline">分享這位 VTuber</span>
+                  </button>
+                )}
               </div>
             )}
-            <ShareControls href={shareHref} channelHref={channelHref} />
+            {/* Where the sticky bar rests; scrolled to after a filter change. */}
+            <div ref={filtersTopRef} className="scroll-mt-2" aria-hidden />
             <CommandBar
-              query={query}
-              onQueryChange={(value) => update({ query: value }, "replace")}
-              groups={filterStats.groups}
-              selectedGroup={selectedGroup}
-              onGroupSelect={(group) => update({ selectedGroup: group })}
-              totalCount={filterStats.groupTotalCount}
-              vtubers={filterStats.vtubers}
-              selectedChannelId={selectedChannelId}
-              onChannelSelect={(channelId) => update({ selectedChannelId: channelId })}
-              groupedCount={filterStats.vtuberTotalCount}
-              kindCounts={kindCounts}
-              selectedKind={selectedKind}
-              onKindSelect={(kind) => update({ selectedKind: kind })}
+              picker={(
+                <VTuberPicker
+                  query={query}
+                  onQueryChange={(value) => update({ query: value }, "replace")}
+                  groups={filterStats.groups}
+                  memberTotalCount={filterStats.memberTotalCount}
+                  selectedGroup={selectedGroup}
+                  onGroupSelect={(group) => refilter({ selectedGroup: group })}
+                  vtubers={filterStats.vtubers}
+                  selectedChannelId={selectedChannelId}
+                  // The search was only the way to find this VTuber; keeping it would narrow nothing.
+                  onChannelSelect={(channelId) => refilter({ selectedChannelId: channelId, query: "" })}
+                  onClear={clearWho}
+                  statuses={channelStatuses}
+                  nowMs={nowMs}
+                />
+              )}
+              typeFilter={(
+                <TimelineTypeFilter counts={kindCounts} selected={selectedKind} onSelect={(kind) => refilter({ selectedKind: kind })} />
+              )}
+              actions={(
+                <button
+                  type="button"
+                  aria-label="分享目前篩選"
+                  title="分享目前篩選"
+                  onClick={() => void share.copy(shareHref)}
+                  className="grid h-11 w-11 place-items-center rounded-2xl bg-[var(--bg-surface-muted)] text-text-secondary transition-colors hover:text-text-primary focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-accent-pink"
+                >
+                  <Share2 size={17} strokeWidth={2.2} aria-hidden />
+                </button>
+              )}
             />
-            <p className="mt-2 px-1 text-xs text-text-secondary">
-              類型旁的數字包含所有月份；歷史紀錄依月份瀏覽。
-            </p>
+            {share.feedback}
             {(selectedKind === "recent" || selectedKind === "milestone") && scopedNavIndex && (
               <ArchiveNavigator
                 index={scopedNavIndex}
@@ -336,6 +393,7 @@ function TimelineContent({ snap, archiveIndex, error, archiveError, nowMs, load 
                     items={items}
                     nowMs={nowMs}
                     mode={railMode}
+                    emptyActions={emptyActions}
                     onShowFinished={() => update({ selectedKind: "recent" })}
                   />
                 </>

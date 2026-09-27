@@ -218,7 +218,7 @@ describe("buildTimelineFilterStats", () => {
     streamItem("Gabu", "gabu", "@gabu", null, "upcoming"),
   ];
 
-  it("scopes kind and group totals to the selected VTuber while leaving VTuber choices faceted", () => {
+  it("scopes kind counts to the selected VTuber while leaving VTuber choices faceted", () => {
     const stats = buildTimelineFilterStats(
       current,
       archive,
@@ -228,8 +228,6 @@ describe("buildTimelineFilterStats", () => {
     );
 
     expect(stats.kindCounts).toEqual({ live: 1, upcoming: 0, recent: 3, milestone: 1 });
-    expect(stats.groupTotalCount).toBe(5);
-    expect(stats.groups.find((option) => option.value === "子午計畫")?.itemCount).toBe(5);
     expect(stats.vtubers.map(({ channelId, itemCount }) => ({ channelId, itemCount }))).toEqual([
       { channelId: "gabu", itemCount: 8 },
       { channelId: "mizuki", itemCount: 5 },
@@ -246,9 +244,70 @@ describe("buildTimelineFilterStats", () => {
     );
 
     expect(stats.kindCounts).toEqual({ live: 1, upcoming: 0, recent: 3, milestone: 1 });
-    expect(stats.vtuberTotalCount).toBe(3);
     expect(stats.vtubers).toHaveLength(1);
     expect(stats.vtubers[0]).toMatchObject({ channelId: "mizuki", itemCount: 3 });
+  });
+
+  it("keeps VTubers with nothing of the selected kind, so a picker can still offer them", () => {
+    const newbie = channel("Newbie", "@newbie");
+    const stats = buildTimelineFilterStats(
+      current,
+      archive,
+      { mizuki, gabu, newbie },
+      ["子午計畫"],
+      { query: "", selectedChannelId: null, selectedKind: "upcoming", selectedGroup: null },
+    );
+
+    expect([...stats.vtubers].sort((left, right) => left.channelId.localeCompare(right.channelId))).toEqual([
+      { channelId: "gabu", name: "Gabu", avatar: null, group: null, itemCount: 1, matches: true },
+      { channelId: "mizuki", name: "水樹", avatar: null, group: "子午計畫", itemCount: 0, matches: true },
+      { channelId: "newbie", name: "Newbie", avatar: null, group: null, itemCount: 0, matches: true },
+    ]);
+  });
+
+  it("keeps the selected VTuber when the search excludes it, but marks it as not matching", () => {
+    const stats = buildTimelineFilterStats(
+      current,
+      archive,
+      { mizuki, gabu },
+      ["子午計畫"],
+      { query: "gab", selectedChannelId: "mizuki", selectedKind: null, selectedGroup: null },
+    );
+
+    expect(stats.vtubers.map(({ channelId, matches, itemCount }) => ({ channelId, matches, itemCount })))
+      .toEqual([
+        { channelId: "gabu", matches: true, itemCount: 8 },
+        { channelId: "mizuki", matches: false, itemCount: 0 },
+      ]);
+  });
+
+  it("counts each group's members among the VTubers matching the search, largest group first", () => {
+    const kirali = channel("煌", "@kirali", null, "子午計畫");
+    const rainbow = channel("白白虹", "@rainbow", null, "SquareLive");
+    const channels = { mizuki, gabu, kirali, rainbow };
+
+    // Members are members whichever type or VTuber is selected.
+    const stats = buildTimelineFilterStats(current, archive, channels, ["SquareLive", "子午計畫", "空團體"], {
+      query: "", selectedChannelId: "gabu", selectedKind: "live", selectedGroup: "子午計畫",
+    });
+    expect(stats.groups).toEqual([
+      { value: "子午計畫", name: "子午計畫", memberCount: 2, size: 2 },
+      { value: "SquareLive", name: "SquareLive", memberCount: 1, size: 1 },
+      { value: "空團體", name: "空團體", memberCount: 0, size: 0 },
+      { value: UNGROUPED_FILTER_VALUE, name: "個人勢", memberCount: 1, size: 1 },
+    ]);
+    expect(stats.memberTotalCount).toBe(4);
+
+    // Typing narrows the counts but must not reshuffle the chips under the cursor.
+    const searched = buildTimelineFilterStats(current, archive, channels, ["SquareLive", "子午計畫"], {
+      query: "RAIN", selectedChannelId: null, selectedKind: null, selectedGroup: null,
+    });
+    expect(searched.groups.map(({ name, memberCount, size }) => [name, memberCount, size])).toEqual([
+      ["子午計畫", 0, 2],
+      ["SquareLive", 1, 1],
+      ["個人勢", 0, 1],
+    ]);
+    expect(searched.memberTotalCount).toBe(1);
   });
 });
 
