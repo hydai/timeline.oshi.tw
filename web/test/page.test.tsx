@@ -342,7 +342,7 @@ describe("Home page", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "正在直播" })).toBeInTheDocument());
     expect(screen.getByText("現在正在直播")).toBeInTheDocument();
     expect(screen.getByText("稍後預定直播")).toBeInTheDocument();
-    expect(screen.getByText(`週年 · ${FUTURE_MILESTONE_DATE}`)).toBeInTheDocument();
+    expect(screen.getByText("出道週年")).toBeInTheDocument();
     await waitFor(() => expect(screen.getByText("已完成的直播")).toBeInTheDocument());
     expect(screen.getByRole("region", { name: /直播與預定活動/ })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /今天稍早/ })).not.toBeInTheDocument();
@@ -372,11 +372,11 @@ describe("Home page", () => {
     await userEvent.click(screen.getByRole("button", { name: "正在直播" }));
     expect(screen.getByText("現在正在直播")).toBeInTheDocument();
     expect(screen.queryByText("稍後預定直播")).not.toBeInTheDocument();
-    expect(screen.queryByText(`週年 · ${FUTURE_MILESTONE_DATE}`)).not.toBeInTheDocument();
+    expect(screen.queryByText("出道週年")).not.toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: "重要里程碑" }));
     expect(screen.queryByText("現在正在直播")).not.toBeInTheDocument();
-    expect(screen.getByText(`週年 · ${FUTURE_MILESTONE_DATE}`)).toBeInTheDocument();
+    expect(screen.getByText("出道週年")).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: "已完成直播" }));
     expect(screen.getByText("已完成的直播")).toBeInTheDocument();
@@ -384,7 +384,7 @@ describe("Home page", () => {
     await userEvent.click(screen.getByRole("button", { name: "全部類型" }));
     expect(screen.getByText("現在正在直播")).toBeInTheDocument();
     expect(screen.getByText("稍後預定直播")).toBeInTheDocument();
-    expect(screen.getByText(`週年 · ${FUTURE_MILESTONE_DATE}`)).toBeInTheDocument();
+    expect(screen.getByText("出道週年")).toBeInTheDocument();
   });
 
   const archiveMonth = (
@@ -557,7 +557,7 @@ describe("Home page", () => {
     render(<Home />);
     await waitFor(() => expect(screen.getByText("六月封存直播")).toBeInTheDocument());
     expect(screen.getByText("稍後預定直播")).toBeInTheDocument();
-    expect(screen.getByText(`週年 · ${FUTURE_MILESTONE_DATE}`)).toBeInTheDocument();
+    expect(screen.getByText("出道週年")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "全部類型" })).toHaveAttribute("aria-pressed", "true");
     expect(window.location.search).toBe("?channel=channel-gabu&month=2026-06");
     expect(monthRequests(fetchMock, "2026-07")).toBe(0);
@@ -572,8 +572,11 @@ describe("Home page", () => {
       const url = String(input);
       const body = url.endsWith("/archive/index.json") ? {
         version: "1.0.0", generated_at: "2026-07-21T19:00:00Z", facets: "channel",
-        months: [{ month: "2026-06", streams: 0, milestones: 1,
-          by_channel: { "channel-gabu": { streams: 0, milestones: 1 } } }],
+        months: [
+          { month: "2026-06", streams: 0, milestones: 1, by_channel: { "channel-gabu": { streams: 0, milestones: 1 } } },
+          // The debut, which says which anniversary June's is.
+          { month: "2024-06", streams: 0, milestones: 1, by_channel: { "channel-gabu": { streams: 0, milestones: 1 } } },
+        ],
       } : url.endsWith("/archive/2026-06.json") ? {
         version: "1.0.0", month: "2026-06", channels: filterFixture.channels,
         streams: [], milestones: [{ channelId: "channel-gabu", type: "anniversary", date: "2026-06-10" }],
@@ -585,7 +588,7 @@ describe("Home page", () => {
     }));
     window.history.replaceState(null, "", "/?channel=channel-gabu");
     render(<Home />);
-    await waitFor(() => expect(screen.getByText("週年 · 2026-06-10")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("出道 2 週年")).toBeInTheDocument());
     expect(screen.queryByRole("region", { name: "歷史封存" })).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "歷史紀錄2026 年 6 月" })).toBeInTheDocument();
     expect(screen.queryByText("目前沒有符合的直播動態")).not.toBeInTheDocument();
@@ -618,7 +621,7 @@ describe("Home page", () => {
     render(<Home />);
     await waitFor(() => expect(screen.getByText("七月封存直播")).toBeInTheDocument());
     expect(screen.getByText("現在正在直播")).toBeInTheDocument();
-    expect(screen.getByText("週年 · 2099-01-01")).toBeInTheDocument();
+    expect(screen.getByText("出道週年")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "2099 年" })).not.toBeInTheDocument();
     expect(monthRequests(fetchMock, "2099-01")).toBe(0);
     const counts = screen.getByRole("region", { name: "依內容類型篩選" }).textContent;
@@ -706,7 +709,7 @@ describe("Home page", () => {
     const month = FUTURE_MILESTONE_DATE.slice(0, 7);
     const label = `${month.slice(0, 4)} 年 ${Number(month.slice(5))} 月`;
     await waitFor(() => expect(screen.getByRole("button", { name: label })).toHaveTextContent("1 筆"));
-    expect(screen.getByText(`週年 · ${FUTURE_MILESTONE_DATE}`)).toBeInTheDocument();
+    expect(screen.getByText("出道週年")).toBeInTheDocument();
     expect(screen.queryByText("載入失敗")).not.toBeInTheDocument();
     expect(monthRequests(fetchMock, month)).toBe(0);
   });

@@ -27,9 +27,25 @@ describe("StreamCard", () => {
 });
 
 describe("MilestoneCard", () => {
-  it("renders an anniversary with channel + label", () => {
-    render(<MilestoneCard channel={channel} milestone={{ channelId: "c", type: "anniversary", date: "2026-07-24" }} />);
+  it("names which anniversary it is and counts down to it", () => {
+    // `now` is 7/21 20:00 in Taipei.
+    render(<MilestoneCard channel={channel} milestone={{ channelId: "c", type: "anniversary", date: "2026-07-24" }} debutYear={2023} nowMs={now} />);
     expect(screen.getByText("水樹")).toBeInTheDocument();
-    expect(screen.getByText(/週年/)).toBeInTheDocument();
+    expect(screen.getByText("出道 3 週年")).toBeInTheDocument();
+    expect(screen.getByText("還有 3 天")).toBeInTheDocument();
+    // The rail's day divider already says which day it is.
+    expect(screen.queryByText(/2026-07-24/)).not.toBeInTheDocument();
+  });
+
+  it("leaves 今天 and 明天 to the day header above it", () => {
+    render(<MilestoneCard channel={channel} milestone={{ channelId: "c", type: "anniversary", date: "2026-07-22" }} debutYear={2023} nowMs={now} />);
+    expect(screen.getByText("出道 3 週年")).toBeInTheDocument();
+    expect(screen.queryByText("明天")).not.toBeInTheDocument();
+  });
+
+  it("stops counting once the day has passed", () => {
+    render(<MilestoneCard channel={channel} milestone={{ channelId: "c", type: "debut", date: "2026-07-01" }} nowMs={now} />);
+    expect(screen.getByText("出道")).toBeInTheDocument();
+    expect(screen.queryByText(/天/)).not.toBeInTheDocument();
   });
 });

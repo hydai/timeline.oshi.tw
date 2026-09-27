@@ -8,6 +8,7 @@ import {
   archiveMonthCount, archiveTotal, filterArchiveIndex, formatArchiveMonth, itemArchiveMonth, latestArchiveMonth,
   stepArchiveMonth, withPendingMilestones,
 } from "@/lib/archive-nav";
+import { debutYears } from "@/lib/milestones";
 import {
   buildTimelineFilterStats,
   filterTimeline,
@@ -146,6 +147,7 @@ function TimelineContent({ snap, archiveIndex, error, archiveError, nowMs, load 
   const historyIndex = useMemo(() => selectedKind === null && archiveIndex && snap
     ? withPendingMilestones(archiveIndex, snap.milestones.filter((milestone) => milestone.date <= today), archiveIndex.generated_at.slice(0, 10))
     : navIndex, [archiveIndex, navIndex, selectedKind, snap, today]);
+  const channelDebutYears = useMemo(() => debutYears(navIndex), [navIndex]);
 
   const channelDirectory = useMemo(() => {
     const archived = Object.values(archiveCache).reduce<Record<string, Snapshot["channels"][string]>>(
@@ -344,6 +346,7 @@ function TimelineContent({ snap, archiveIndex, error, archiveError, nowMs, load 
                   items={currentItems}
                   nowMs={nowMs}
                   mode="forward"
+                  debutYears={channelDebutYears}
                   onShowFinished={() => update({ selectedKind: "recent" })}
                 />
               </section>
@@ -381,6 +384,7 @@ function TimelineContent({ snap, archiveIndex, error, archiveError, nowMs, load 
                     items={items}
                     nowMs={nowMs}
                     mode={railMode}
+                    debutYears={channelDebutYears}
                     emptyActions={emptyActions}
                     onShowFinished={() => update({ selectedKind: "recent" })}
                   />
