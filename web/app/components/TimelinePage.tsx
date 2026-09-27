@@ -6,8 +6,9 @@ import {
 import { buildArchiveTimeline, buildTimeline, mergeTimelines } from "@/lib/timeline";
 import {
   archiveMonthCount, archiveTotal, filterArchiveIndex, formatArchiveMonth, itemArchiveMonth, latestArchiveMonth,
-  stepArchiveMonth, withPendingMilestones,
+  pastMilestoneIndex, stepArchiveMonth, withPendingMilestones,
 } from "@/lib/archive-nav";
+import { debutYears } from "@/lib/milestones";
 import {
   buildTimelineFilterStats,
   filterTimeline,
@@ -22,8 +23,10 @@ import CommandBar from "./CommandBar";
 import VTuberPicker from "./VTuberPicker";
 import TimelineTypeFilter from "./TimelineTypeFilter";
 import Timeline from "./Timeline";
+import MilestoneList, { type MilestoneItem } from "./MilestoneList";
+import EmptyState from "./EmptyState";
 import ArchiveNavigator from "./ArchiveNavigator";
-import { Link as LinkIcon, Share2 } from "lucide-react";
+import ShareButton from "./ShareButton";
 import ChannelAvatar from "./ChannelAvatar";
 import { useShareLink } from "./useShareLink";
 import { useTimelineUrl } from "./useTimelineUrl";
@@ -36,6 +39,11 @@ const ARCHIVE_INDEX_URL = archiveIndexUrl(SNAPSHOT_URL);
 function isCurrentActivity(item: TimelineItem, today: string): boolean {
   return item.kind === "live" || item.kind === "upcoming" ||
     (item.kind === "milestone" && item.milestone.date > today);
+}
+
+/** The milestone view lists these on their own, ahead of history: today's and later. */
+function isUpcomingMilestone(item: TimelineItem, today: string): boolean {
+  return item.kind === "milestone" && item.milestone.date >= today;
 }
 
 export default function TimelinePage({ name }: { name?: string }) {
@@ -106,7 +114,7 @@ function TimelineContent({ snap, archiveIndex, error, archiveError, nowMs, load 
   load: (force?: boolean) => void;
 }) {
   const { selection, update } = useTimelineUrl();
-  const { query, selectedGroup, selectedChannelId, selectedKind, month: pickedMonth } = selection;
+  const { query, selectedGroup, selectedChannelId, selectedKind, month: linkedMonth } = selection;
   const [archiveCache, setArchiveCache] = useState<Record<string, ArchiveMonth>>({});
   const [monthRetry, setMonthRetry] = useState(0);
   const previousRetry = useRef(0);
@@ -126,6 +134,10 @@ function TimelineContent({ snap, archiveIndex, error, archiveError, nowMs, load 
   const snapshotTimeline = useMemo(() => snap ? buildTimeline(snap) : [], [snap]);
   const channelStatuses = useMemo(() => buildChannelStatuses(snapshotTimeline, nowMs), [nowMs, snapshotTimeline]);
   const today = taipeiDayKey(new Date(nowMs).toISOString());
+  // Milestone links from before 即將到來 existed can name a month still ahead. Its
+  // milestones are listed as upcoming now and its history is empty, so ignore it.
+  const pickedMonth = selectedKind === "milestone" && linkedMonth && isArchiveMonth(linkedMonth) &&
+    linkedMonth > today.slice(0, 7) ? null : linkedMonth;
   // All always includes both current activity and monthly history. The month only
   // scopes history; changing it must never hide a live stream or an upcoming event.
   const historyKind = selectedKind === null ? "all"
@@ -143,9 +155,23 @@ function TimelineContent({ snap, archiveIndex, error, archiveError, nowMs, load 
     : archiveIndex), [archiveIndex, snap]);
   // Future milestones are already visible in All's current section. Including them
   // in its month picker could open a future anniversary month and hide recent history.
-  const historyIndex = useMemo(() => selectedKind === null && archiveIndex && snap
-    ? withPendingMilestones(archiveIndex, snap.milestones.filter((milestone) => milestone.date <= today), archiveIndex.generated_at.slice(0, 10))
-    : navIndex, [archiveIndex, navIndex, selectedKind, snap, today]);
+  // The milestone view lists today's among them too, so its history is only the past.
+  const historyIndex = useMemo(() => {
+    if (!archiveIndex || !snap) return navIndex;
+    if (selectedKind === "milestone") return pastMilestoneIndex(archiveIndex, snap.milestones, today);
+    if (selectedKind !== null) return navIndex;
+    return withPendingMilestones(
+      archiveIndex,
+      snap.milestones.filter((milestone) => milestone.date <= today),
+      archiveIndex.generated_at.slice(0, 10),
+    );
+  }, [archiveIndex, navIndex, selectedKind, snap, today]);
+  const channelDebutYears = useMemo(() => debutYears(navIndex), [navIndex]);
+  const upcomingMilestones = useMemo(() => selectedKind === "milestone"
+    ? filterTimeline(snapshotTimeline, query, selectedChannelId, "milestone", selectedGroup)
+      .filter((item): item is MilestoneItem => isUpcomingMilestone(item, today))
+      .sort((left, right) => left.milestone.date.localeCompare(right.milestone.date))
+    : [], [query, selectedChannelId, selectedGroup, selectedKind, snapshotTimeline, today]);
 
   const channelDirectory = useMemo(() => {
     const archived = Object.values(archiveCache).reduce<Record<string, Snapshot["channels"][string]>>(
@@ -223,13 +249,21 @@ function TimelineContent({ snap, archiveIndex, error, archiveError, nowMs, load 
   }, [filterStats.kindCounts, scopedNavIndex]);
   const items = useMemo(() => {
     if (historyKind && pickedMonth && !archiveMonth) return [];
+    // What the page lists above history stays out of it.
     const filtered = filterTimeline(timeline, query, selectedChannelId, selectedKind, selectedGroup)
-      .filter((item) => selectedKind !== null || !isCurrentActivity(item, today));
+      .filter((item) => selectedKind === null ? !isCurrentActivity(item, today)
+        : selectedKind !== "milestone" || !isUpcomingMilestone(item, today));
     // History reads one archive month at a time; without this the current snapshot's own
     // finished streams would ride along under whatever month is on screen.
     if (!historyKind || !archiveMonth) return filtered;
     return filtered.filter((item) => itemArchiveMonth(item) === archiveMonth);
   }, [archiveMonth, historyKind, pickedMonth, query, selectedChannelId, selectedGroup, selectedKind, timeline, today]);
+  // Newest first, like the rest of history: both milestone lists start next to today.
+  const pastMilestones = useMemo(() => selectedKind === "milestone"
+    ? items
+      .filter((item): item is MilestoneItem => item.kind === "milestone")
+      .sort((left, right) => right.milestone.date.localeCompare(left.milestone.date))
+    : [], [items, selectedKind]);
   // Finished streams and milestones read newest-first; everything else reads forward from now.
   const railMode: RailMode = historyKind ? "history" : "forward";
   const historyTotal = scopedNavIndex && historyKind ? archiveTotal(scopedNavIndex, historyKind) : 0;
@@ -285,18 +319,6 @@ function TimelineContent({ snap, archiveIndex, error, archiveError, nowMs, load 
                   <h2 className="truncate text-base font-extrabold text-text-primary">{selectedChannel.name}</h2>
                   <p className="text-xs text-text-secondary">直播動態與重要里程碑</p>
                 </div>
-                {channelHref && (
-                  <button
-                    type="button"
-                    aria-label="分享這位 VTuber"
-                    title="分享這位 VTuber"
-                    onClick={() => void share.copy(channelHref)}
-                    className="inline-flex h-10 flex-none items-center gap-1.5 rounded-pill bg-[var(--bg-surface-muted)] px-3 text-xs font-semibold text-text-secondary hover:text-text-primary focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-accent-pink"
-                  >
-                    <LinkIcon size={14} aria-hidden />
-                    <span className="hidden sm:inline">分享這位 VTuber</span>
-                  </button>
-                )}
               </div>
             )}
             {/* Where the sticky bar rests; scrolled to after a filter change. */}
@@ -323,18 +345,27 @@ function TimelineContent({ snap, archiveIndex, error, archiveError, nowMs, load 
                 <TimelineTypeFilter counts={kindCounts} selected={selectedKind} onSelect={(kind) => refilter({ selectedKind: kind })} />
               )}
               actions={(
-                <button
-                  type="button"
-                  aria-label="分享目前篩選"
-                  title="分享目前篩選"
-                  onClick={() => void share.copy(shareHref)}
-                  className="grid h-11 w-11 place-items-center rounded-2xl bg-[var(--bg-surface-muted)] text-text-secondary transition-colors hover:text-text-primary focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-accent-pink"
-                >
-                  <Share2 size={17} strokeWidth={2.2} aria-hidden />
-                </button>
+                // Keyed by the page as navigated: a menu left open on one page, or one view of it,
+                // must not greet you on the next. Not by shareHref, whose default month fills in
+                // once the archive loads — that would shut a menu for no move of the reader's.
+                <ShareButton
+                  key={timelineHref(selection)}
+                  viewHref={shareHref}
+                  channelHref={channelHref}
+                  onShare={(href) => void share.copy(href)}
+                />
               )}
             />
             {share.feedback}
+            {selectedKind === "milestone" && upcomingMilestones.length > 0 && (
+              <section aria-labelledby="upcoming-milestones-heading" className="mt-5">
+                <h2 id="upcoming-milestones-heading" className="mb-3 text-base font-extrabold text-text-primary">
+                  即將到來
+                  <span className="ml-2 text-xs font-semibold text-text-secondary">{upcomingMilestones.length} 筆</span>
+                </h2>
+                <MilestoneList items={upcomingMilestones} nowMs={nowMs} debutYears={channelDebutYears} upcoming />
+              </section>
+            )}
             {(selectedKind === "recent" || selectedKind === "milestone") && scopedNavIndex && (
               <ArchiveNavigator
                 index={scopedNavIndex}
@@ -356,6 +387,7 @@ function TimelineContent({ snap, archiveIndex, error, archiveError, nowMs, load 
                   items={currentItems}
                   nowMs={nowMs}
                   mode="forward"
+                  debutYears={channelDebutYears}
                   onShowFinished={() => update({ selectedKind: "recent" })}
                 />
               </section>
@@ -381,22 +413,29 @@ function TimelineContent({ snap, archiveIndex, error, archiveError, nowMs, load 
                 <div role="status" className="glass rounded-2xl p-6 text-center text-text-secondary">
                   歷史紀錄暫時無法載入，請稍後重試。
                 </div>
-              ) : !(selectedKind === null && items.length === 0 && currentItems.length > 0) && (
-                <>
-                  {selectedKind === null && items.length > 0 && (
-                    <h2 className="mb-3 text-base font-extrabold text-text-primary">
-                      歷史紀錄
-                      {archiveMonth && <span className="ml-2 text-xs font-semibold text-text-secondary">{formatArchiveMonth(archiveMonth)}</span>}
-                    </h2>
-                  )}
-                  <Timeline
-                    items={items}
-                    nowMs={nowMs}
-                    mode={railMode}
-                    emptyActions={emptyActions}
-                    onShowFinished={() => update({ selectedKind: "recent" })}
-                  />
-                </>
+              ) : !(items.length === 0 && (currentItems.length > 0 || upcomingMilestones.length > 0)) && (
+                selectedKind === "milestone" ? (
+                  pastMilestones.length > 0 ? (
+                    <MilestoneList items={pastMilestones} nowMs={nowMs} debutYears={channelDebutYears} upcoming={false} />
+                  ) : <EmptyState actions={emptyActions} />
+                ) : (
+                  <>
+                    {selectedKind === null && items.length > 0 && (
+                      <h2 className="mb-3 text-base font-extrabold text-text-primary">
+                        歷史紀錄
+                        {archiveMonth && <span className="ml-2 text-xs font-semibold text-text-secondary">{formatArchiveMonth(archiveMonth)}</span>}
+                      </h2>
+                    )}
+                    <Timeline
+                      items={items}
+                      nowMs={nowMs}
+                      mode={railMode}
+                      debutYears={channelDebutYears}
+                      emptyActions={emptyActions}
+                      onShowFinished={() => update({ selectedKind: "recent" })}
+                    />
+                  </>
+                )
               )}
               {historyKind && !monthUnavailable && !unknownChannel && (
                 <div className="mt-5 flex flex-col items-center gap-2 text-center text-xs text-text-secondary" aria-live="polite">

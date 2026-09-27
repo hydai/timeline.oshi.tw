@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { render, screen } from "@testing-library/react";
 import StreamCard from "@/app/components/StreamCard";
 import MilestoneCard from "@/app/components/MilestoneCard";
+import MilestoneList from "@/app/components/MilestoneList";
 
 const channel = { name: "水樹", handle: "@mizuki", avatar: null, group: "子午計畫", nationality: "TW", youtube_subs: 1, twvtuber_id: "t" };
 const now = Date.parse("2026-07-21T12:00:00Z");
@@ -27,9 +28,73 @@ describe("StreamCard", () => {
 });
 
 describe("MilestoneCard", () => {
-  it("renders an anniversary with channel + label", () => {
-    render(<MilestoneCard channel={channel} milestone={{ channelId: "c", type: "anniversary", date: "2026-07-24" }} />);
+  it("names which anniversary it is and counts down to it", () => {
+    // `now` is 7/21 20:00 in Taipei.
+    render(<MilestoneCard channel={channel} milestone={{ channelId: "c", type: "anniversary", date: "2026-07-24" }} debutYear={2023} nowMs={now} />);
     expect(screen.getByText("水樹")).toBeInTheDocument();
-    expect(screen.getByText(/週年/)).toBeInTheDocument();
+    expect(screen.getByText("出道 3 週年")).toBeInTheDocument();
+    expect(screen.getByText("還有 3 天")).toBeInTheDocument();
+    // The rail's day divider already says which day it is.
+    expect(screen.queryByText(/2026-07-24/)).not.toBeInTheDocument();
+  });
+
+  it("leaves 今天 and 明天 to the day header above it", () => {
+    render(<MilestoneCard channel={channel} milestone={{ channelId: "c", type: "anniversary", date: "2026-07-22" }} debutYear={2023} nowMs={now} />);
+    expect(screen.getByText("出道 3 週年")).toBeInTheDocument();
+    expect(screen.queryByText("明天")).not.toBeInTheDocument();
+  });
+
+  it("stops counting once the day has passed", () => {
+    render(<MilestoneCard channel={channel} milestone={{ channelId: "c", type: "debut", date: "2026-07-01" }} nowMs={now} />);
+    expect(screen.getByText("出道")).toBeInTheDocument();
+    expect(screen.queryByText(/天/)).not.toBeInTheDocument();
+  });
+});
+
+describe("MilestoneList", () => {
+  const milestoneItem = (channelId: string, name: string, type: "debut" | "anniversary", date: string) => ({
+    kind: "milestone" as const,
+    sortAt: 0,
+    milestone: { channelId, type, date },
+    channel: { ...channel, name },
+  });
+
+  it("gives each milestone its day, what it is, and how long until it", () => {
+    render(
+      <MilestoneList
+        upcoming
+        nowMs={now}
+        debutYears={new Map([["mizuki", 2023]])}
+        items={[
+          milestoneItem("mizuki", "水樹", "anniversary", "2026-07-21"),
+          milestoneItem("gabu", "Gabu", "debut", "2026-07-24"),
+        ]}
+      />,
+    );
+
+    const [today, later] = screen.getAllByRole("listitem");
+    expect(today).toHaveTextContent("7/21");
+    expect(today).toHaveTextContent("週二");
+    expect(today).toHaveTextContent("水樹");
+    expect(today).toHaveTextContent("出道 3 週年");
+    expect(today).toHaveTextContent("今天");
+    expect(later).toHaveTextContent("Gabu");
+    expect(later).toHaveTextContent("出道");
+    expect(later).toHaveTextContent("還有 3 天");
+  });
+
+  it("leaves the countdown off milestones already past", () => {
+    render(
+      <MilestoneList
+        upcoming={false}
+        nowMs={now}
+        debutYears={new Map()}
+        items={[milestoneItem("gabu", "Gabu", "anniversary", "2026-06-10")]}
+      />,
+    );
+
+    expect(screen.getByRole("listitem")).toHaveTextContent("6/10");
+    expect(screen.getByRole("listitem")).toHaveTextContent("出道週年");
+    expect(screen.getByRole("listitem")).not.toHaveTextContent(/天/);
   });
 });

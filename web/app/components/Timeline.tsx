@@ -27,6 +27,7 @@ function Row({ time, node, children }: { time?: ReactNode; node: ReactNode; chil
 }
 
 function DayRow({ row }: { row: Extract<RailRow, { type: "day" }> }) {
+  const streams = row.count - row.milestones;
   return (
     <div className={GRID}>
       <div />
@@ -45,7 +46,12 @@ function DayRow({ row }: { row: Extract<RailRow, { type: "day" }> }) {
         <h2 className="text-base font-extrabold tracking-tight text-text-primary sm:text-lg">{row.title}</h2>
         <span className="text-xs font-semibold tabular-nums text-text-secondary sm:text-[13px]">{row.date}</span>
         <span className="h-px flex-1 bg-[var(--border-default)]" />
-        <span className="text-[11px] font-semibold tabular-nums text-text-secondary sm:text-xs">{row.count} 場</span>
+        <span className="text-[11px] font-semibold tabular-nums text-text-secondary sm:text-xs">
+          {[
+            streams > 0 || row.milestones === 0 ? `${streams} 場` : null,
+            row.milestones > 0 ? `${row.milestones} 個里程碑` : null,
+          ].filter(Boolean).join(" · ")}
+        </span>
       </div>
     </div>
   );
@@ -122,7 +128,11 @@ function FoldRow({ row, onOpen }: { row: Extract<RailRow, { type: "fold" }>; onO
   );
 }
 
-function ItemRow({ row, nowMs }: { row: Extract<RailRow, { type: "item" }>; nowMs: number }) {
+function ItemRow({ row, nowMs, debutYears }: {
+  row: Extract<RailRow, { type: "item" }>;
+  nowMs: number;
+  debutYears?: Map<string, number>;
+}) {
   const { item } = row;
   const accent =
     item.kind === "live"
@@ -148,7 +158,12 @@ function ItemRow({ row, nowMs }: { row: Extract<RailRow, { type: "item" }>; nowM
       }
     >
       {item.kind === "milestone" ? (
-        <MilestoneCard milestone={item.milestone} channel={item.channel} />
+        <MilestoneCard
+          milestone={item.milestone}
+          channel={item.channel}
+          debutYear={debutYears?.get(item.milestone.channelId)}
+          nowMs={nowMs}
+        />
       ) : (
         <StreamCard kind={item.kind} stream={item.stream} channel={item.channel} nowMs={nowMs} />
       )}
@@ -156,12 +171,14 @@ function ItemRow({ row, nowMs }: { row: Extract<RailRow, { type: "item" }>; nowM
   );
 }
 
-export default function Timeline({ items, nowMs, mode, onShowFinished, emptyActions }: {
+export default function Timeline({ items, nowMs, mode, onShowFinished, emptyActions, debutYears }: {
   items: TimelineItem[];
   nowMs: number;
   mode: RailMode;
   onShowFinished: () => void;
   emptyActions?: ReactNode;
+  /** Each channel's debut year, so an anniversary can say which one it is. */
+  debutYears?: Map<string, number>;
 }) {
   const rows = useMemo(() => buildRail(items, nowMs, mode), [items, nowMs, mode]);
   const hasContent = rows.some((row) => row.type === "item" || row.type === "fold");
@@ -179,7 +196,7 @@ export default function Timeline({ items, nowMs, mode, onShowFinished, emptyActi
           case "fold":
             return <FoldRow key={row.key} row={row} onOpen={onShowFinished} />;
           case "item":
-            return <ItemRow key={row.key} row={row} nowMs={nowMs} />;
+            return <ItemRow key={row.key} row={row} nowMs={nowMs} debutYears={debutYears} />;
           case "tail":
             return (
               <div key={row.key} className={GRID}>

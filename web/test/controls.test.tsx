@@ -1,6 +1,7 @@
 import { afterEach, describe, it, expect, vi } from "vitest";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import ShareButton from "@/app/components/ShareButton";
 import TimelineTypeFilter from "@/app/components/TimelineTypeFilter";
 import VTuberPicker, { type VTuberPickerProps } from "@/app/components/VTuberPicker";
 import { UNGROUPED_FILTER_VALUE, type VTuberChoice } from "@/lib/filter";
@@ -424,6 +425,54 @@ describe("VTuberPicker", () => {
 
     expect(mizukiOption.querySelector("img")).not.toBeInTheDocument();
     expect(within(mizukiOption).getByText("水")).toBeInTheDocument();
+  });
+});
+
+describe("ShareButton", () => {
+  it("copies the view at once when it is the only link to share", async () => {
+    const onShare = vi.fn();
+    render(<ShareButton viewHref="/?type=live" channelHref={null} onShare={onShare} />);
+
+    await userEvent.click(screen.getByRole("button", { name: "分享目前篩選" }));
+
+    expect(onShare).toHaveBeenCalledWith("/?type=live");
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+  });
+
+  it("asks which link on a VTuber's page, and walks the choices with the arrow keys", async () => {
+    const onShare = vi.fn();
+    render(<ShareButton viewHref="/v/rei?type=live" channelHref="/v/rei" onShare={onShare} />);
+
+    await userEvent.click(screen.getByRole("button", { name: "分享" }));
+    expect(screen.getByRole("menuitem", { name: "分享這位 VTuber" })).toHaveFocus();
+    await userEvent.keyboard("{ArrowDown}");
+    expect(screen.getByRole("menuitem", { name: "分享目前篩選" })).toHaveFocus();
+    await userEvent.keyboard("{ArrowDown}{ArrowDown}{Enter}");
+
+    expect(onShare).toHaveBeenCalledWith("/v/rei?type=live");
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "分享" })).toHaveFocus();
+  });
+
+  it("tells a screen reader what each link is, not only its name", async () => {
+    render(<ShareButton viewHref="/v/rei?type=live" channelHref="/v/rei" onShare={vi.fn()} />);
+
+    await userEvent.click(screen.getByRole("button", { name: "分享" }));
+
+    expect(screen.getByRole("menuitem", { name: "分享這位 VTuber", description: "頻道頁，打開時永遠是最新動態" }))
+      .toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "分享目前篩選", description: "連同目前的類型與月份" }))
+      .toBeInTheDocument();
+  });
+
+  it("closes when Tab moves on, as a menu does", async () => {
+    render(<ShareButton viewHref="/v/rei?type=live" channelHref="/v/rei" onShare={vi.fn()} />);
+
+    await userEvent.click(screen.getByRole("button", { name: "分享" }));
+    await userEvent.tab();
+
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "分享" })).toHaveAttribute("aria-expanded", "false");
   });
 });
 

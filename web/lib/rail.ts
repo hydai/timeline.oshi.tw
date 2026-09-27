@@ -9,7 +9,7 @@ import type { TimelineItem } from "./types";
 export type RailMode = "forward" | "history";
 
 export type RailRow =
-  | { type: "day"; key: string; dayKey: string; title: string; date: string; count: number; isToday: boolean }
+  | { type: "day"; key: string; dayKey: string; title: string; date: string; count: number; milestones: number; isToday: boolean }
   | { type: "fold"; key: string; scope: "today" | "earlier"; clock: string; count: number; items: TimelineItem[] }
   | { type: "now"; key: string; clock: string; liveCount: number }
   | { type: "item"; key: string; clock: string; item: TimelineItem }
@@ -65,25 +65,31 @@ function itemRow(entry: Dated): RailRow {
   };
 }
 
-function dayRow(dayKey: string, nowMs: number, count: number): RailRow {
+/** `milestones` is counted apart: a day of anniversaries is not a day of streams. */
+function dayRow(dayKey: string, nowMs: number, entries: Dated[]): RailRow {
   const { title, date } = formatDayHeading(dayKey, nowMs);
   const isToday = dayKey === taipeiDayKey(new Date(nowMs).toISOString());
-  return { type: "day", key: `day:${dayKey}`, dayKey, title, date, count, isToday };
+  const milestones = entries.filter((entry) => entry.item.kind === "milestone").length;
+  return { type: "day", key: `day:${dayKey}`, dayKey, title, date, count: entries.length, milestones, isToday };
 }
 
 function buildHistory(dated: Dated[], nowMs: number): RailRow[] {
   if (dated.length === 0) return [];
 
   const sorted = [...dated].sort((left, right) => right.sortAt - left.sortAt);
-  const perDay = new Map<string, number>();
-  for (const entry of sorted) perDay.set(entry.dayKey, (perDay.get(entry.dayKey) ?? 0) + 1);
+  const perDay = new Map<string, Dated[]>();
+  for (const entry of sorted) {
+    const day = perDay.get(entry.dayKey);
+    if (day) day.push(entry);
+    else perDay.set(entry.dayKey, [entry]);
+  }
 
   const rows: RailRow[] = [];
   let currentDay: string | null = null;
   for (const entry of sorted) {
     if (entry.dayKey !== currentDay) {
       currentDay = entry.dayKey;
-      rows.push(dayRow(entry.dayKey, nowMs, perDay.get(entry.dayKey) ?? 0));
+      rows.push(dayRow(entry.dayKey, nowMs, perDay.get(entry.dayKey) ?? []));
     }
     rows.push(itemRow(entry));
   }
@@ -144,7 +150,7 @@ function buildForward(dated: Dated[], nowMs: number, todayKey: string): RailRow[
     const folded = isToday ? entries.filter((entry) => entry.item.kind === "recent") : [];
     const listed = isToday ? entries.filter((entry) => entry.item.kind !== "recent") : entries;
 
-    rows.push(dayRow(dayKey, nowMs, entries.length));
+    rows.push(dayRow(dayKey, nowMs, entries));
 
     const earliestFolded = folded[0];
     if (earliestFolded) {

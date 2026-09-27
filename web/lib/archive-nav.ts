@@ -90,6 +90,53 @@ export function withPendingMilestones(
   return { ...index, months: months.sort((left, right) => right.month.localeCompare(left.month)) };
 }
 
+/**
+ * The reverse of withPendingMilestones: take milestones out of the counts, but only
+ * those dated on or before `cutoff`, since those are the only ones the archive holds.
+ * The milestone view lists today's as upcoming and must not count them in history too.
+ */
+export function withoutMilestones(
+  index: ArchiveIndex,
+  milestones: Milestone[],
+  cutoff: string,
+): ArchiveIndex {
+  const counted = milestones.filter((milestone) => milestone.date <= cutoff);
+  if (counted.length === 0) return index;
+  const complete = index.facets === "channel";
+  const months = index.months.map((summary) => {
+    const inMonth = counted.filter((milestone) => milestone.date.startsWith(`${summary.month}-`));
+    const byChannel = { ...(summary.by_channel ?? {}) };
+    let removed = 0;
+    for (const milestone of inMonth) {
+      const current = byChannel[milestone.channelId];
+      const held = current !== undefined && current.milestones > 0;
+      // Complete per-channel counts without it show the archive never held it: the
+      // snapshot can come from a later run than the index, after a channel was added.
+      if (!held && complete) continue;
+      if (held) byChannel[milestone.channelId] = { ...current, milestones: current.milestones - 1 };
+      removed += 1;
+    }
+    if (removed === 0) return summary;
+    return { ...summary, milestones: Math.max(0, summary.milestones - removed), by_channel: byChannel };
+  });
+  return { ...index, months };
+}
+
+/**
+ * What milestone history counts on the Taipei day `today`: only what has passed. The
+ * archive holds milestones up to its own generated date and the snapshot brings the
+ * ones after it; today's belong with those still to come, so they come out wherever the
+ * archive already holds them.
+ */
+export function pastMilestoneIndex(index: ArchiveIndex, milestones: Milestone[], today: string): ArchiveIndex {
+  const cutoff = index.generated_at.slice(0, 10);
+  return withoutMilestones(
+    withPendingMilestones(index, milestones.filter((milestone) => milestone.date < today), cutoff),
+    milestones.filter((milestone) => milestone.date === today),
+    cutoff,
+  );
+}
+
 /** Apply all channel-level filters to the archive's month totals. */
 export function filterArchiveIndex(
   index: ArchiveIndex,

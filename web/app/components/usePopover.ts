@@ -8,7 +8,11 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExter
  * While `sheetMedia` matches, the panel is a bottom sheet laid out by CSS alone, and
  * the page behind it stops scrolling.
  */
-export function usePopover<T extends HTMLElement>({ maxHeight = 360, sheetMedia = "" } = {}) {
+export function usePopover<T extends HTMLElement>({
+  maxHeight = 360,
+  sheetMedia = "",
+  align = "start",
+}: { maxHeight?: number; sheetMedia?: string; align?: "start" | "end" } = {}) {
   const [open, setOpen] = useState(false);
   const ref = useRef<T>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -50,7 +54,9 @@ export function usePopover<T extends HTMLElement>({ maxHeight = 360, sheetMedia 
       const anchorBounds = anchor.getBoundingClientRect();
       const panelWidth = panel.getBoundingClientRect().width;
       const viewportWidth = document.documentElement.clientWidth;
-      const left = Math.max(gutter, Math.min(anchorBounds.left, viewportWidth - panelWidth - gutter));
+      // A panel opened from the right end of the bar lines up with its trigger's right edge.
+      const preferred = align === "end" ? anchorBounds.right - panelWidth : anchorBounds.left;
+      const left = Math.max(gutter, Math.min(preferred, viewportWidth - panelWidth - gutter));
       const availableHeight = window.innerHeight - anchorBounds.bottom - 8 - gutter;
       panel.style.left = `${left - anchorBounds.left}px`;
       panel.style.maxHeight = `${Math.max(0, Math.min(maxHeight, availableHeight))}px`;
@@ -63,7 +69,7 @@ export function usePopover<T extends HTMLElement>({ maxHeight = 360, sheetMedia 
       window.removeEventListener("resize", positionPanel);
       window.removeEventListener("scroll", positionPanel, true);
     };
-  }, [open, maxHeight, isSheet]);
+  }, [open, maxHeight, isSheet, align]);
 
   useEffect(() => {
     if (!sheet) return;

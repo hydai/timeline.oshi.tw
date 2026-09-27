@@ -1,15 +1,27 @@
 import { Cake, GraduationCap, PartyPopper, type LucideIcon } from "lucide-react";
 import type { Milestone, SnapshotChannel } from "@/lib/types";
+import { daysUntil, describeDaysUntil, milestoneLabel } from "@/lib/milestones";
 import ChannelAvatar from "./ChannelAvatar";
 
-const MILESTONE: Record<Milestone["type"], { label: string; Icon: LucideIcon }> = {
-  debut: { label: "出道", Icon: PartyPopper },
-  anniversary: { label: "週年", Icon: Cake },
-  graduate: { label: "畢業", Icon: GraduationCap },
+export const MILESTONE_ICON: Record<Milestone["type"], LucideIcon> = {
+  debut: PartyPopper,
+  anniversary: Cake,
+  graduate: GraduationCap,
 };
 
-export default function MilestoneCard({ milestone, channel }: { milestone: Milestone; channel: SnapshotChannel }) {
-  const { label, Icon } = MILESTONE[milestone.type];
+/**
+ * A milestone on the rail. The day divider above it already gives the date, and says 今天
+ * or 明天 when it is one of those, so the card says what the milestone is — which
+ * anniversary — and, while it is further ahead, how long to wait.
+ */
+export default function MilestoneCard({ milestone, channel, debutYear, nowMs }: {
+  milestone: Milestone;
+  channel: SnapshotChannel;
+  debutYear?: number;
+  nowMs: number;
+}) {
+  const Icon = MILESTONE_ICON[milestone.type];
+  const days = daysUntil(milestone.date, nowMs);
 
   return (
     <div
@@ -28,11 +40,19 @@ export default function MilestoneCard({ milestone, channel }: { milestone: Miles
       </span>
       <div className="min-w-0 flex-1">
         <div className="truncate text-sm font-bold text-text-primary sm:text-[14.5px] sm:leading-5">{channel.name}</div>
-        <div className="text-xs text-text-secondary">{label} · {milestone.date}</div>
+        <div className="flex items-center gap-1.5 text-xs">
+          <span className="font-semibold text-[var(--text-accent-purple)]">{milestoneLabel(milestone, debutYear)}</span>
+          {days > 1 && (
+            <>
+              <span className="text-text-tertiary" aria-hidden>·</span>
+              <span className="text-text-secondary">{describeDaysUntil(days)}</span>
+            </>
+          )}
+        </div>
       </div>
       {channel.group && (
         <span className="hidden flex-none rounded-pill px-3 py-1 text-xs font-extrabold sm:inline"
-              style={{ background: "var(--bg-accent-pink-muted)", color: "var(--accent-purple)" }}>
+              style={{ background: "var(--bg-accent-pink-muted)", color: "var(--text-accent-purple)" }}>
           {channel.group}
         </span>
       )}

@@ -55,6 +55,13 @@ export function shiftDayKey(dayKey: string, days: number): string {
   return `${shifted.getUTCFullYear()}-${pad(shifted.getUTCMonth() + 1)}-${pad(shifted.getUTCDate())}`;
 }
 
+/** A calendar date as its short month/day and weekday: `{ monthDay: "10/3", weekday: "週六" }`. */
+export function formatCalendarDay(dayKey: string): { monthDay: string; weekday: string } {
+  const [y, m, d] = dayKey.split("-").map(Number);
+  if (!y || !m || !d) return { monthDay: "", weekday: "" };
+  return { monthDay: `${m}/${d}`, weekday: WEEKDAY[new Date(Date.UTC(y, m - 1, d, 12)).getUTCDay()] ?? "" };
+}
+
 /** Day-divider text: relative for today/tomorrow, otherwise the date with the weekday beneath. */
 export function formatDayHeading(dayKey: string, nowMs: number): { title: string; date: string } {
   const [y, m, d] = dayKey.split("-").map(Number);

@@ -118,6 +118,27 @@ describe("Timeline", () => {
     expect(screen.getByText("8/28")).toBeInTheDocument();
   });
 
+  it("counts a day's milestones as milestones rather than as streams", () => {
+    const milestone = (date: string): TimelineItem => ({
+      kind: "milestone",
+      sortAt: Date.parse(date),
+      milestone: { channelId: "c", type: "anniversary", date },
+      channel,
+    });
+    render(
+      <Timeline items={[nextWeek, milestone("2026-08-28"), milestone("2026-08-29")]} nowMs={NOW} mode="forward" onShowFinished={noop} />,
+    );
+
+    expect(screen.getByText("1 場 · 1 個里程碑")).toBeInTheDocument();
+    expect(screen.getByText("1 個里程碑")).toBeInTheDocument();
+  });
+
+  it("still says so when today has nothing on it", () => {
+    render(<Timeline items={[nextWeek]} nowMs={NOW} mode="forward" onShowFinished={noop} />);
+
+    expect(screen.getByText("0 場")).toBeInTheDocument();
+  });
+
   it("shows the empty state when nothing survives the filters", () => {
     render(<Timeline items={[]} nowMs={NOW} mode="forward" onShowFinished={noop} />);
 

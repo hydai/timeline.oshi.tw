@@ -1,6 +1,6 @@
 import "./next-navigation";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import Home from "@/app/page";
 import type { Snapshot } from "@/lib/types";
@@ -342,7 +342,7 @@ describe("Home page", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "正在直播" })).toBeInTheDocument());
     expect(screen.getByText("現在正在直播")).toBeInTheDocument();
     expect(screen.getByText("稍後預定直播")).toBeInTheDocument();
-    expect(screen.getByText(`週年 · ${FUTURE_MILESTONE_DATE}`)).toBeInTheDocument();
+    expect(screen.getByText("出道週年")).toBeInTheDocument();
     await waitFor(() => expect(screen.getByText("已完成的直播")).toBeInTheDocument());
     expect(screen.getByRole("region", { name: /直播與預定活動/ })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /今天稍早/ })).not.toBeInTheDocument();
@@ -372,11 +372,11 @@ describe("Home page", () => {
     await userEvent.click(screen.getByRole("button", { name: "正在直播" }));
     expect(screen.getByText("現在正在直播")).toBeInTheDocument();
     expect(screen.queryByText("稍後預定直播")).not.toBeInTheDocument();
-    expect(screen.queryByText(`週年 · ${FUTURE_MILESTONE_DATE}`)).not.toBeInTheDocument();
+    expect(screen.queryByText("出道週年")).not.toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: "重要里程碑" }));
     expect(screen.queryByText("現在正在直播")).not.toBeInTheDocument();
-    expect(screen.getByText(`週年 · ${FUTURE_MILESTONE_DATE}`)).toBeInTheDocument();
+    expect(screen.getByText("出道週年")).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: "已完成直播" }));
     expect(screen.getByText("已完成的直播")).toBeInTheDocument();
@@ -384,7 +384,7 @@ describe("Home page", () => {
     await userEvent.click(screen.getByRole("button", { name: "全部類型" }));
     expect(screen.getByText("現在正在直播")).toBeInTheDocument();
     expect(screen.getByText("稍後預定直播")).toBeInTheDocument();
-    expect(screen.getByText(`週年 · ${FUTURE_MILESTONE_DATE}`)).toBeInTheDocument();
+    expect(screen.getByText("出道週年")).toBeInTheDocument();
   });
 
   const archiveMonth = (
@@ -557,7 +557,7 @@ describe("Home page", () => {
     render(<Home />);
     await waitFor(() => expect(screen.getByText("六月封存直播")).toBeInTheDocument());
     expect(screen.getByText("稍後預定直播")).toBeInTheDocument();
-    expect(screen.getByText(`週年 · ${FUTURE_MILESTONE_DATE}`)).toBeInTheDocument();
+    expect(screen.getByText("出道週年")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "全部類型" })).toHaveAttribute("aria-pressed", "true");
     expect(window.location.search).toBe("?channel=channel-gabu&month=2026-06");
     expect(monthRequests(fetchMock, "2026-07")).toBe(0);
@@ -572,8 +572,11 @@ describe("Home page", () => {
       const url = String(input);
       const body = url.endsWith("/archive/index.json") ? {
         version: "1.0.0", generated_at: "2026-07-21T19:00:00Z", facets: "channel",
-        months: [{ month: "2026-06", streams: 0, milestones: 1,
-          by_channel: { "channel-gabu": { streams: 0, milestones: 1 } } }],
+        months: [
+          { month: "2026-06", streams: 0, milestones: 1, by_channel: { "channel-gabu": { streams: 0, milestones: 1 } } },
+          // The debut, which says which anniversary June's is.
+          { month: "2024-06", streams: 0, milestones: 1, by_channel: { "channel-gabu": { streams: 0, milestones: 1 } } },
+        ],
       } : url.endsWith("/archive/2026-06.json") ? {
         version: "1.0.0", month: "2026-06", channels: filterFixture.channels,
         streams: [], milestones: [{ channelId: "channel-gabu", type: "anniversary", date: "2026-06-10" }],
@@ -585,7 +588,7 @@ describe("Home page", () => {
     }));
     window.history.replaceState(null, "", "/?channel=channel-gabu");
     render(<Home />);
-    await waitFor(() => expect(screen.getByText("週年 · 2026-06-10")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("出道 2 週年")).toBeInTheDocument());
     expect(screen.queryByRole("region", { name: "歷史封存" })).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "歷史紀錄2026 年 6 月" })).toBeInTheDocument();
     expect(screen.queryByText("目前沒有符合的直播動態")).not.toBeInTheDocument();
@@ -618,7 +621,7 @@ describe("Home page", () => {
     render(<Home />);
     await waitFor(() => expect(screen.getByText("七月封存直播")).toBeInTheDocument());
     expect(screen.getByText("現在正在直播")).toBeInTheDocument();
-    expect(screen.getByText("週年 · 2099-01-01")).toBeInTheDocument();
+    expect(screen.getByText("出道週年")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "2099 年" })).not.toBeInTheDocument();
     expect(monthRequests(fetchMock, "2099-01")).toBe(0);
     const counts = screen.getByRole("region", { name: "依內容類型篩選" }).textContent;
@@ -693,22 +696,108 @@ describe("Home page", () => {
     await waitFor(() => expect(screen.getByText("六月封存直播")).toBeInTheDocument());
   });
 
-  it("counts a milestone that has not happened yet, without going looking for its month", async () => {
-    // The archive stops at what has passed; upcoming anniversaries arrive on the
-    // snapshot. Both land on the rail, so a month cell that counted only the archive
-    // would promise fewer than it opens — and its month has no file to fetch.
-    const fetchMock = stubArchive();
+  it("lists milestones still ahead soonest first, above history that opens on the last month already past", async () => {
+    // Upcoming anniversaries arrive on the snapshot, not the archive. Listed on their
+    // own, they no longer drag history onto a month that has not happened yet.
+    const soon = at(24 * HOUR).slice(0, 10);
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      const body = url.endsWith("/archive/index.json") ? {
+        version: "1.0.0", generated_at: "2026-07-21T19:00:00Z", facets: "channel",
+        months: [
+          { month: "2026-06", streams: 0, milestones: 1, by_channel: { "channel-mizuki": { streams: 0, milestones: 1 } } },
+          { month: "2024-06", streams: 0, milestones: 1, by_channel: { "channel-mizuki": { streams: 0, milestones: 1 } } },
+          { month: "2023-08", streams: 0, milestones: 1, by_channel: { "channel-gabu": { streams: 0, milestones: 1 } } },
+        ],
+      } : url.endsWith("/archive/2026-06.json") ? {
+        version: "1.0.0", month: "2026-06", channels: filterFixture.channels, streams: [],
+        milestones: [{ channelId: "channel-mizuki", type: "anniversary", date: "2026-06-10" }],
+      } : {
+        ...typeFilterFixture,
+        milestones: [
+          { channelId: "channel-gabu", type: "anniversary", date: FUTURE_MILESTONE_DATE },
+          { channelId: "channel-mizuki", type: "anniversary", date: soon },
+        ],
+      };
+      return new Response(JSON.stringify(body), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    window.history.replaceState(null, "", "/?type=milestone");
     render(<Home />);
 
-    await waitFor(() => expect(screen.getByRole("button", { name: "重要里程碑" })).toBeInTheDocument());
-    await userEvent.click(screen.getByRole("button", { name: "重要里程碑" }));
+    const upcoming = await screen.findByRole("region", { name: /即將到來/ });
+    const [first, second] = within(upcoming).getAllByRole("listitem");
+    expect(first).toHaveTextContent("水樹");
+    expect(second).toHaveTextContent("Gabu");
+    expect(second).toHaveTextContent(`出道 ${Number(FUTURE_MILESTONE_DATE.slice(0, 4)) - 2023} 週年`);
+    expect(second).toHaveTextContent(/還有 \d 天/);
 
-    const month = FUTURE_MILESTONE_DATE.slice(0, 7);
-    const label = `${month.slice(0, 4)} 年 ${Number(month.slice(5))} 月`;
-    await waitFor(() => expect(screen.getByRole("button", { name: label })).toHaveTextContent("1 筆"));
-    expect(screen.getByText(`週年 · ${FUTURE_MILESTONE_DATE}`)).toBeInTheDocument();
-    expect(screen.queryByText("載入失敗")).not.toBeInTheDocument();
-    expect(monthRequests(fetchMock, month)).toBe(0);
+    await waitFor(() => expect(screen.getByText("6/10")).toBeInTheDocument());
+    expect(screen.getByText("6/10").closest("li")).toHaveTextContent("出道 2 週年");
+    expect(screen.getByRole("button", { name: "2026 年 6 月" })).toHaveAttribute("aria-pressed", "true");
+    expect(monthRequests(fetchMock, FUTURE_MILESTONE_DATE.slice(0, 7))).toBe(0);
+  });
+
+  it("lists today's milestone once, as today's, when history opens on this month", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-09-27T04:00:00Z"));
+    const channels = { ...filterFixture.channels, "channel-sayo": { ...filterFixture.channels["channel-gabu"], name: "小夜" } };
+    const past = { channelId: "channel-mizuki", type: "anniversary" as const, date: "2026-09-20" };
+    const todays = { channelId: "channel-gabu", type: "anniversary" as const, date: "2026-09-27" };
+    const later = { channelId: "channel-sayo", type: "anniversary" as const, date: "2026-09-29" };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      const body = url.endsWith("/archive/index.json") ? {
+        // Written this morning, so the archive already holds today's milestone.
+        version: "1.0.0", generated_at: "2026-09-27T01:00:00Z", facets: "channel",
+        months: [{ month: "2026-09", streams: 0, milestones: 2, by_channel: {
+          "channel-mizuki": { streams: 0, milestones: 1 }, "channel-gabu": { streams: 0, milestones: 1 },
+        } }],
+      } : url.endsWith("/archive/2026-09.json") ? {
+        version: "1.0.0", month: "2026-09", channels, streams: [], milestones: [past, todays],
+      } : { ...filterFixture, channels, upcoming: [], milestones: [past, todays, later] };
+      return new Response(JSON.stringify(body), { status: 200 });
+    }));
+    window.history.replaceState(null, "", "/?type=milestone");
+    render(<Home />);
+
+    const upcoming = await screen.findByRole("region", { name: /即將到來/ });
+    const [first, second] = within(upcoming).getAllByRole("listitem");
+    expect(first).toHaveTextContent("Gabu");
+    expect(first).toHaveTextContent("今天");
+    expect(second).toHaveTextContent("小夜");
+    expect(second).toHaveTextContent("還有 2 天");
+
+    await waitFor(() => expect(screen.getByText("9/20")).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "2026 年 9 月" })).toHaveAttribute("aria-pressed", "true");
+    // Counted once, in the list above, not again in history.
+    expect(screen.getByRole("button", { name: "2026 年 9 月" })).toHaveTextContent("1 筆");
+    expect(screen.getAllByText("Gabu")).toHaveLength(1);
+    expect(screen.getAllByText("小夜")).toHaveLength(1);
+  });
+
+  it("opens milestone history where it normally would when a link names a month still ahead", async () => {
+    // The previous milestone view shared whichever month it had open, usually next month.
+    vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-09-27T04:00:00Z"));
+    const ahead = { channelId: "channel-gabu", type: "anniversary" as const, date: "2026-10-03" };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      const body = url.endsWith("/archive/index.json") ? {
+        version: "1.0.0", generated_at: "2026-09-27T01:00:00Z", facets: "channel",
+        months: [{ month: "2026-06", streams: 0, milestones: 1, by_channel: { "channel-mizuki": { streams: 0, milestones: 1 } } }],
+      } : url.endsWith("/archive/2026-06.json") ? {
+        version: "1.0.0", month: "2026-06", channels: filterFixture.channels, streams: [],
+        milestones: [{ channelId: "channel-mizuki", type: "anniversary", date: "2026-06-10" }],
+      } : { ...filterFixture, upcoming: [], milestones: [ahead] };
+      return new Response(JSON.stringify(body), { status: 200 });
+    }));
+    window.history.replaceState(null, "", "/?type=milestone&month=2026-10");
+    render(<Home />);
+
+    const upcoming = await screen.findByRole("region", { name: /即將到來/ });
+    expect(within(upcoming).getByRole("listitem")).toHaveTextContent("Gabu");
+    await waitFor(() => expect(screen.getByText("6/10")).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "2026 年 6 月" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.queryByText(/沒有符合篩選的封存/)).not.toBeInTheDocument();
   });
 
   it("clears a month's failure once a month that does load is chosen", async () => {
@@ -820,9 +909,14 @@ describe("Home page", () => {
     window.history.replaceState(null, "", "/?channel=channel-mizuki&type=recent");
     render(<Home />);
     await waitFor(() => expect(screen.getByText("七月封存直播")).toBeInTheDocument());
-    await user.click(screen.getByRole("button", { name: "分享目前篩選" }));
+    // One share button on a VTuber's page; both links live in its menu.
+    expect(screen.getAllByRole("button", { name: /分享/ })).toHaveLength(1);
+    await user.click(screen.getByRole("button", { name: "分享" }));
+    await user.click(screen.getByRole("menuitem", { name: "分享目前篩選" }));
     expect(write).toHaveBeenLastCalledWith(`${window.location.origin}/?channel=channel-mizuki&type=recent&month=2026-07`);
-    await user.click(screen.getByRole("button", { name: "分享這位 VTuber" }));
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "分享" }));
+    await user.click(screen.getByRole("menuitem", { name: "分享這位 VTuber" }));
     expect(write).toHaveBeenLastCalledWith(`${window.location.origin}/?channel=channel-mizuki`);
   });
 
@@ -876,11 +970,47 @@ describe("Home page", () => {
     stubArchive();
     window.history.replaceState(null, "", "/?channel=channel-mizuki&type=upcoming");
     render(<Home />);
-    await waitFor(() => expect(screen.getByRole("button", { name: "分享這位 VTuber" })).toBeInTheDocument());
-    await user.click(screen.getByRole("button", { name: "分享這位 VTuber" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "分享" })).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: "分享" }));
+    await user.click(screen.getByRole("menuitem", { name: "分享這位 VTuber" }));
     expect(screen.getByLabelText("分享連結")).toHaveValue(`${window.location.origin}/?channel=channel-mizuki`);
+    expect(screen.getByLabelText("分享連結")).toHaveFocus();
     await user.click(screen.getByRole("button", { name: "全部類型" }));
     expect(screen.queryByLabelText("分享連結")).not.toBeInTheDocument();
+  });
+
+  it("does not bring the share menu back open on returning to a VTuber's page", async () => {
+    const user = userEvent.setup();
+    stubArchive();
+    window.history.replaceState(null, "", "/?type=upcoming");
+    render(<Home />);
+    await waitFor(() => expect(pickerTrigger()).toBeInTheDocument());
+    await pickVTuber("水樹");
+    await user.click(screen.getByRole("button", { name: "分享" }));
+    expect(screen.getByRole("menu", { name: "分享" })).toBeInTheDocument();
+
+    await act(async () => window.history.back());
+    await waitFor(() => expect(screen.getByRole("button", { name: "分享目前篩選" })).toBeInTheDocument());
+    await act(async () => window.history.forward());
+    await waitFor(() => expect(screen.getByRole("button", { name: "分享" })).toBeInTheDocument());
+
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+  });
+
+  it("dismisses the share menu when back or forward moves to another view of the same VTuber", async () => {
+    const user = userEvent.setup();
+    stubArchive();
+    window.history.replaceState(null, "", "/?channel=channel-mizuki");
+    render(<Home />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "預定直播" })).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: "預定直播" }));
+    await user.click(screen.getByRole("button", { name: "分享" }));
+    expect(screen.getByRole("menu", { name: "分享" })).toBeInTheDocument();
+
+    await act(async () => window.history.back());
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "全部類型" })).toHaveAttribute("aria-pressed", "true"));
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
   });
 
   it("lets a manually shown share link be dismissed", async () => {
