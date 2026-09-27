@@ -161,6 +161,37 @@ describe("Home page", () => {
     expect(screen.queryAllByRole("link").length).toBeLessThan(before);
   });
 
+  it("offers a way back from a type with nothing in it", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify(filterFixture), { status: 200 })),
+    );
+    window.history.replaceState(null, "", "/?type=live");
+    render(<Home />);
+    await waitFor(() => expect(screen.getByText("目前沒有符合的直播動態")).toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: "改看所有 VTuber" })).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "改看全部類型" }));
+
+    expect(screen.getByRole("link", { name: /水樹的直播/ })).toBeInTheDocument();
+    expect(window.location.search).toBe("");
+  });
+
+  it("offers a way back from a search with nothing in it", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify(filterFixture), { status: 200 })),
+    );
+    window.history.replaceState(null, "", "/?q=zzzznotarealname&type=upcoming");
+    render(<Home />);
+    await waitFor(() => expect(screen.getByText("目前沒有符合的直播動態")).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole("button", { name: "改看所有 VTuber" }));
+
+    expect(screen.getByRole("link", { name: /Gabu 的直播/ })).toBeInTheDocument();
+    expect(window.location.search).toBe("?type=upcoming");
+  });
+
   it("filters the river by VTuber and restores every channel", async () => {
     vi.stubGlobal(
       "fetch",

@@ -156,16 +156,17 @@ function ItemRow({ row, nowMs }: { row: Extract<RailRow, { type: "item" }>; nowM
   );
 }
 
-export default function Timeline({ items, nowMs, mode, onShowFinished }: {
+export default function Timeline({ items, nowMs, mode, onShowFinished, emptyActions }: {
   items: TimelineItem[];
   nowMs: number;
   mode: RailMode;
   onShowFinished: () => void;
+  emptyActions?: ReactNode;
 }) {
   const rows = useMemo(() => buildRail(items, nowMs, mode), [items, nowMs, mode]);
   const hasContent = rows.some((row) => row.type === "item" || row.type === "fold");
 
-  if (!hasContent) return <EmptyState />;
+  if (!hasContent) return <EmptyState actions={emptyActions} />;
 
   return (
     <div className="flex flex-col gap-3">

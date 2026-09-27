@@ -245,6 +245,19 @@ function TimelineContent({ snap, archiveIndex, error, archiveError, nowMs, load 
     ? timelineHref({ ...EMPTY_SELECTION, selectedChannelId }) : null;
   const share = useShareLink(`${shareHref} ${channelHref ?? ""}`);
 
+  const clearWho = () => update({ query: "", selectedGroup: null, selectedChannelId: null });
+  const whoFiltered = Boolean(query || selectedGroup || selectedChannelId);
+  const emptyAction = "rounded-pill bg-[var(--bg-surface-muted)] px-4 py-2 text-sm font-semibold text-text-primary hover:bg-[var(--bg-popover-hover)] focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-accent-pink";
+  // A dead end names its own way out: loosen whichever filter is doing the narrowing.
+  const emptyActions = selectedKind || whoFiltered ? (
+    <>
+      {selectedKind && (
+        <button type="button" className={emptyAction} onClick={() => update({ selectedKind: null })}>改看全部類型</button>
+      )}
+      {whoFiltered && <button type="button" className={emptyAction} onClick={clearWho}>改看所有 VTuber</button>}
+    </>
+  ) : undefined;
+
   return (
     <>
         {!snap && error ? (
@@ -290,7 +303,7 @@ function TimelineContent({ snap, archiveIndex, error, archiveError, nowMs, load 
                   selectedChannelId={selectedChannelId}
                   // The search was only the way to find this VTuber; keeping it would narrow nothing.
                   onChannelSelect={(channelId) => update({ selectedChannelId: channelId, query: "" })}
-                  onClear={() => update({ query: "", selectedGroup: null, selectedChannelId: null })}
+                  onClear={clearWho}
                   statuses={channelStatuses}
                   nowMs={nowMs}
                 />
@@ -369,6 +382,7 @@ function TimelineContent({ snap, archiveIndex, error, archiveError, nowMs, load 
                     items={items}
                     nowMs={nowMs}
                     mode={railMode}
+                    emptyActions={emptyActions}
                     onShowFinished={() => update({ selectedKind: "recent" })}
                   />
                 </>
