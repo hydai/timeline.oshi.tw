@@ -512,7 +512,7 @@ describe("Home page", () => {
     const fetchMock = stubArchive();
     render(<Home />);
 
-    await waitFor(() => expect(screen.getByRole("button", { name: "已完成直播" })).toHaveTextContent("2"));
+    await waitFor(() => expect(screen.getByRole("button", { name: "已完成直播" })).toBeInTheDocument());
     await userEvent.click(screen.getByRole("button", { name: "已完成直播" }));
 
     await waitFor(() => expect(screen.getByText("七月封存直播")).toBeInTheDocument());
@@ -531,8 +531,6 @@ describe("Home page", () => {
 
     expect(screen.getByRole("button", { name: "正在直播" })).toHaveTextContent("1");
     expect(screen.getByRole("button", { name: "預定直播" })).toHaveTextContent("0");
-    expect(screen.getByRole("button", { name: "已完成直播" })).toHaveTextContent("1");
-    expect(screen.getByRole("button", { name: "重要里程碑" })).toHaveTextContent("0");
 
     await userEvent.click(screen.getByRole("button", { name: "已完成直播" }));
 

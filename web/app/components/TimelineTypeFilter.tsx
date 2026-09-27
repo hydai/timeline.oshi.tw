@@ -1,5 +1,6 @@
 "use client";
 
+import { useId } from "react";
 import {
   CalendarClock,
   CircleCheckBig,
@@ -15,55 +16,37 @@ interface FilterOption {
   label: string;
   ariaLabel: string;
   icon: LucideIcon;
-  activeClass: string;
+  activeText: string;
+  badge?: string;
 }
 
 const FILTER_OPTIONS: FilterOption[] = [
-  {
-    kind: null,
-    label: "全部",
-    ariaLabel: "全部類型",
-    icon: ListFilter,
-    activeClass: "border-[var(--accent-pink)] bg-[var(--bg-accent-pink-muted)] text-[var(--accent-pink-dark)]",
-  },
+  { kind: null, label: "全部", ariaLabel: "全部類型", icon: ListFilter, activeText: "text-text-primary" },
   {
     kind: "live",
-    label: "正在直播",
+    label: "直播中",
     ariaLabel: "正在直播",
     icon: Radio,
-    activeClass: "border-[var(--accent-pink)] bg-[var(--bg-accent-pink-muted)] text-[var(--accent-pink-dark)]",
+    activeText: "text-[var(--text-accent-pink)]",
+    badge: "bg-[var(--bg-accent-pink-muted)]",
   },
   {
     kind: "upcoming",
-    label: "預定直播",
+    label: "預定",
     ariaLabel: "預定直播",
     icon: CalendarClock,
-    activeClass: "border-[var(--accent-blue)] bg-[var(--bg-accent-blue-muted)] text-[var(--accent-blue)]",
+    activeText: "text-[var(--text-accent-blue)]",
+    badge: "bg-[var(--bg-accent-blue-muted)]",
   },
-  {
-    kind: "recent",
-    label: "已完成",
-    ariaLabel: "已完成直播",
-    icon: CircleCheckBig,
-    activeClass: "border-[var(--text-secondary)] bg-[var(--bg-surface-muted)] text-text-primary",
-  },
-  {
-    kind: "milestone",
-    label: "里程碑",
-    ariaLabel: "重要里程碑",
-    icon: Trophy,
-    activeClass: "border-[var(--accent-purple)] bg-[var(--bg-accent-pink-muted)] text-[var(--accent-purple)]",
-  },
+  { kind: "recent", label: "已完成", ariaLabel: "已完成直播", icon: CircleCheckBig, activeText: "text-text-primary" },
+  { kind: "milestone", label: "里程碑", ariaLabel: "重要里程碑", icon: Trophy, activeText: "text-[var(--text-accent-purple)]" },
 ];
 
-function countForOption(
-  kind: TimelineKind | null,
-  counts: TimelineKindCounts,
-): number {
-  if (kind) return counts[kind];
-  return Object.values(counts).reduce((total, count) => total + count, 0);
-}
-
+/**
+ * A segmented control rather than a row of chips, so every type fits one row on a phone.
+ * Only live and upcoming carry a count: they are what the page is opened for, while the
+ * lifetime size of the archive says nothing about which type to look at next.
+ */
 export default function TimelineTypeFilter({
   counts,
   selected,
@@ -73,40 +56,55 @@ export default function TimelineTypeFilter({
   selected: TimelineKind | null;
   onSelect: (kind: TimelineKind | null) => void;
 }) {
+  const baseId = useId();
   return (
-    <section
-      aria-labelledby="timeline-type-filter-heading"
-      className="w-full min-w-0 lg:w-auto"
-    >
+    <section aria-labelledby="timeline-type-filter-heading" className="w-full min-w-0 md:w-auto">
       <h2 id="timeline-type-filter-heading" className="sr-only">
         依內容類型篩選
       </h2>
-      <div className="scrollbar-none flex snap-x gap-1 overflow-x-auto">
+      <div className="flex gap-0.5 rounded-2xl bg-[var(--bg-surface-muted)] p-1">
         {FILTER_OPTIONS.map((option) => {
           const active = selected === option.kind;
           const Icon = option.icon;
+          const count = option.badge && option.kind ? counts[option.kind] : null;
+          const countId = `${baseId}-${option.kind}-count`;
 
           return (
             <button
               key={option.ariaLabel}
               type="button"
               aria-label={option.ariaLabel}
+              aria-describedby={count !== null ? countId : undefined}
               aria-pressed={active}
               title={option.ariaLabel}
               onClick={() => onSelect(option.kind)}
               className={[
-                "flex h-11 flex-none snap-start items-center justify-center gap-1.5 rounded-2xl border px-3 text-[13px] font-bold whitespace-nowrap",
+                // The tightest phones (320px) get a smaller label and gap so no type is cut short.
+                "flex h-9 min-w-0 flex-auto items-center justify-center gap-0.5 rounded-xl px-1 text-[12px] font-bold whitespace-nowrap",
+                "min-[360px]:gap-1 min-[360px]:text-[12.5px] sm:gap-1.5 sm:px-3 sm:text-[13px] md:flex-none",
                 "transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-accent-pink",
                 active
-                  ? option.activeClass
-                  : "border-transparent bg-transparent text-text-secondary hover:bg-[var(--bg-surface-muted)] hover:text-text-primary",
+                  ? `bg-[var(--bg-segment-active)] shadow-[var(--shadow-segment)] ${option.activeText}`
+                  : "text-text-secondary hover:bg-[var(--bg-popover-hover)] hover:text-text-primary",
               ].join(" ")}
             >
-              <Icon size={15} strokeWidth={2.4} aria-hidden="true" />
-              <span>{option.label}</span>
-              <span className="rounded-full bg-[var(--bg-surface-muted)] px-1.5 py-0.5 text-[10.5px] tabular-nums text-text-secondary">
-                {countForOption(option.kind, counts)}
-              </span>
+              {option.kind === "live" && counts.live > 0 ? (
+                <span className="hidden h-1.5 w-1.5 flex-none rounded-full bg-[var(--accent-pink)] motion-safe:animate-pulse min-[360px]:block" aria-hidden />
+              ) : (
+                <Icon size={15} strokeWidth={2.4} className="hidden flex-none lg:block" aria-hidden />
+              )}
+              <span className="truncate">{option.label}</span>
+              {count !== null && (
+                <span
+                  id={countId}
+                  className={[
+                    "min-w-4 flex-none rounded-full px-[3px] py-px text-center text-[10.5px] tabular-nums min-[360px]:min-w-[18px] min-[360px]:px-1",
+                    count > 0 ? `${option.badge} text-text-primary` : "text-text-secondary",
+                  ].join(" ")}
+                >
+                  {count}<span className="sr-only">場</span>
+                </span>
+              )}
             </button>
           );
         })}

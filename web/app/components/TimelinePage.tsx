@@ -275,9 +275,6 @@ function TimelineContent({ snap, archiveIndex, error, archiveError, nowMs, load 
               selectedKind={selectedKind}
               onKindSelect={(kind) => update({ selectedKind: kind })}
             />
-            <p className="mt-2 px-1 text-xs text-text-secondary">
-              類型旁的數字包含所有月份；歷史紀錄依月份瀏覽。
-            </p>
             {(selectedKind === "recent" || selectedKind === "milestone") && scopedNavIndex && (
               <ArchiveNavigator
                 index={scopedNavIndex}

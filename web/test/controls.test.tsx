@@ -101,7 +101,24 @@ describe("GroupFilter", () => {
 });
 
 describe("TimelineTypeFilter", () => {
-  it("renders counts, reflects selection, and emits the selected kind", async () => {
+  it("counts what is live and upcoming, but not the whole archive", () => {
+    render(
+      <TimelineTypeFilter
+        counts={{ live: 2, upcoming: 4, recent: 16930, milestone: 123 }}
+        selected={null}
+        onSelect={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "正在直播" })).toHaveTextContent("2");
+    expect(screen.getByRole("button", { name: "預定直播" })).toHaveTextContent("4");
+    // Lifetime totals such as 16,930 finished streams say nothing about what to open next.
+    for (const name of ["全部類型", "已完成直播", "重要里程碑"]) {
+      expect(screen.getByRole("button", { name })).not.toHaveTextContent(/\d/);
+    }
+  });
+
+  it("reflects the selection and emits the selected kind", async () => {
     const onSelect = vi.fn();
     render(
       <TimelineTypeFilter
@@ -111,11 +128,8 @@ describe("TimelineTypeFilter", () => {
       />,
     );
 
-    expect(screen.getByRole("button", { name: "全部類型" })).toHaveTextContent("15");
-    expect(screen.getByRole("button", { name: "正在直播" })).toHaveTextContent("2");
     expect(screen.getByRole("button", { name: "預定直播" })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByRole("button", { name: "已完成直播" })).toHaveTextContent("8");
-    expect(screen.getByRole("button", { name: "重要里程碑" })).toHaveTextContent("1");
+    expect(screen.getByRole("button", { name: "全部類型" })).toHaveAttribute("aria-pressed", "false");
 
     await userEvent.click(screen.getByRole("button", { name: "重要里程碑" }));
     expect(onSelect).toHaveBeenCalledWith("milestone");
