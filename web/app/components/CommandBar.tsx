@@ -1,68 +1,24 @@
 "use client";
 
-import type {
-  GroupFilterOption,
-  GroupFilterValue,
-  TimelineKind,
-  TimelineKindCounts,
-  VTuberFilterOption,
-} from "@/lib/filter";
-import SearchBar from "./SearchBar";
-import GroupFilter from "./GroupFilter";
-import VTuberFilter from "./VTuberFilter";
-import TimelineTypeFilter from "./TimelineTypeFilter";
+import type { ReactNode } from "react";
 
 /**
- * One sticky row replacing the three stacked filter blocks the page used to open with.
- * Group and channel pickers collapse into popovers so the rail starts near the top.
+ * The sticky filter row: who (the VTuber picker) and what (the content type). On a phone
+ * they stack into two short rows, so the bar never costs more than a sliver of the rail.
+ * The document order is the wide-screen order, so Tab walks it left to right; a phone
+ * only moves the types onto their own row below.
  */
-export default function CommandBar({
-  query,
-  onQueryChange,
-  groups,
-  selectedGroup,
-  onGroupSelect,
-  totalCount,
-  vtubers,
-  selectedChannelId,
-  onChannelSelect,
-  groupedCount,
-  kindCounts,
-  selectedKind,
-  onKindSelect,
-}: {
-  query: string;
-  onQueryChange: (value: string) => void;
-  groups: GroupFilterOption[];
-  selectedGroup: GroupFilterValue;
-  onGroupSelect: (group: GroupFilterValue) => void;
-  totalCount: number;
-  vtubers: VTuberFilterOption[];
-  selectedChannelId: string | null;
-  onChannelSelect: (channelId: string | null) => void;
-  groupedCount: number;
-  kindCounts: TimelineKindCounts;
-  selectedKind: TimelineKind | null;
-  onKindSelect: (kind: TimelineKind | null) => void;
+export default function CommandBar({ picker, typeFilter, actions }: {
+  picker: ReactNode;
+  typeFilter: ReactNode;
+  actions?: ReactNode;
 }) {
   return (
-    <div className="glass-toolbar sticky top-2 z-30 rounded-3xl p-2 shadow-lg">
-      <div className="flex flex-wrap items-center gap-2">
-        <SearchBar value={query} onChange={onQueryChange} />
-        <GroupFilter
-          options={groups}
-          selected={selectedGroup}
-          totalCount={totalCount}
-          onSelect={onGroupSelect}
-        />
-        <VTuberFilter
-          options={vtubers}
-          selected={selectedChannelId}
-          totalCount={groupedCount}
-          onSelect={onChannelSelect}
-        />
-        <span className="mx-1 hidden h-6 w-px flex-none bg-[var(--border-default)] xl:block" />
-        <TimelineTypeFilter counts={kindCounts} selected={selectedKind} onSelect={onKindSelect} />
+    <div className="glass-toolbar sticky top-2 z-30 rounded-3xl p-1.5 shadow-lg">
+      <div className="flex flex-wrap items-center gap-1.5 md:flex-nowrap">
+        {picker}
+        <div className="order-last w-full min-w-0 md:order-none md:w-auto">{typeFilter}</div>
+        {actions && <div className="flex flex-none items-center gap-1.5 md:ml-auto">{actions}</div>}
       </div>
     </div>
   );

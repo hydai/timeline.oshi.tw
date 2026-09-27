@@ -15,9 +15,12 @@ import {
 import type { ArchiveIndex, ArchiveMonth, Snapshot, TimelineItem } from "@/lib/types";
 import type { RailMode } from "@/lib/rail";
 import { taipeiDayKey } from "@/lib/time";
+import { buildChannelStatuses } from "@/lib/channel-status";
 import Header from "./Header";
 import TimelineLoading from "./TimelineLoading";
 import CommandBar from "./CommandBar";
+import VTuberPicker from "./VTuberPicker";
+import TimelineTypeFilter from "./TimelineTypeFilter";
 import Timeline from "./Timeline";
 import ArchiveNavigator from "./ArchiveNavigator";
 import ChannelAvatar from "./ChannelAvatar";
@@ -111,6 +114,7 @@ function TimelineContent({ snap, archiveIndex, error, archiveError, nowMs, load 
   const railRef = useRef<HTMLDivElement>(null);
 
   const snapshotTimeline = useMemo(() => snap ? buildTimeline(snap) : [], [snap]);
+  const channelStatuses = useMemo(() => buildChannelStatuses(snapshotTimeline, nowMs), [nowMs, snapshotTimeline]);
   const today = taipeiDayKey(new Date(nowMs).toISOString());
   // All always includes both current activity and monthly history. The month only
   // scopes history; changing it must never hide a live stream or an upcoming event.
@@ -261,19 +265,26 @@ function TimelineContent({ snap, archiveIndex, error, archiveError, nowMs, load 
             )}
             <ShareControls href={shareHref} channelHref={channelHref} />
             <CommandBar
-              query={query}
-              onQueryChange={(value) => update({ query: value }, "replace")}
-              groups={filterStats.groups}
-              selectedGroup={selectedGroup}
-              onGroupSelect={(group) => update({ selectedGroup: group })}
-              totalCount={filterStats.groupTotalCount}
-              vtubers={filterStats.vtubers}
-              selectedChannelId={selectedChannelId}
-              onChannelSelect={(channelId) => update({ selectedChannelId: channelId })}
-              groupedCount={filterStats.vtuberTotalCount}
-              kindCounts={kindCounts}
-              selectedKind={selectedKind}
-              onKindSelect={(kind) => update({ selectedKind: kind })}
+              picker={(
+                <VTuberPicker
+                  query={query}
+                  onQueryChange={(value) => update({ query: value }, "replace")}
+                  groups={filterStats.groups}
+                  memberTotalCount={filterStats.memberTotalCount}
+                  selectedGroup={selectedGroup}
+                  onGroupSelect={(group) => update({ selectedGroup: group })}
+                  vtubers={filterStats.vtubers}
+                  selectedChannelId={selectedChannelId}
+                  // The search was only the way to find this VTuber; keeping it would narrow nothing.
+                  onChannelSelect={(channelId) => update({ selectedChannelId: channelId, query: "" })}
+                  onClear={() => update({ query: "", selectedGroup: null, selectedChannelId: null })}
+                  statuses={channelStatuses}
+                  nowMs={nowMs}
+                />
+              )}
+              typeFilter={(
+                <TimelineTypeFilter counts={kindCounts} selected={selectedKind} onSelect={(kind) => update({ selectedKind: kind })} />
+              )}
             />
             {(selectedKind === "recent" || selectedKind === "milestone") && scopedNavIndex && (
               <ArchiveNavigator
