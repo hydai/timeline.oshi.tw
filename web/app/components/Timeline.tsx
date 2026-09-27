@@ -27,6 +27,7 @@ function Row({ time, node, children }: { time?: ReactNode; node: ReactNode; chil
 }
 
 function DayRow({ row }: { row: Extract<RailRow, { type: "day" }> }) {
+  const streams = row.count - row.milestones;
   return (
     <div className={GRID}>
       <div />
@@ -45,7 +46,12 @@ function DayRow({ row }: { row: Extract<RailRow, { type: "day" }> }) {
         <h2 className="text-base font-extrabold tracking-tight text-text-primary sm:text-lg">{row.title}</h2>
         <span className="text-xs font-semibold tabular-nums text-text-secondary sm:text-[13px]">{row.date}</span>
         <span className="h-px flex-1 bg-[var(--border-default)]" />
-        <span className="text-[11px] font-semibold tabular-nums text-text-secondary sm:text-xs">{row.count} 場</span>
+        <span className="text-[11px] font-semibold tabular-nums text-text-secondary sm:text-xs">
+          {[
+            streams > 0 || row.milestones === 0 ? `${streams} 場` : null,
+            row.milestones > 0 ? `${row.milestones} 個里程碑` : null,
+          ].filter(Boolean).join(" · ")}
+        </span>
       </div>
     </div>
   );

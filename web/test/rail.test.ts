@@ -210,6 +210,15 @@ describe("buildRail — forward mode", () => {
     expect(rows.find((row) => row.type === "now")).toMatchObject({ liveCount: 1 });
   });
 
+  it("counts a day's milestones apart from its streams, since a milestone is not a stream", () => {
+    const sameDay = stream("upcoming", "anniversary-stream", { scheduledStart: "2026-08-29T12:00:00Z" });
+    for (const mode of ["forward", "history"] as const) {
+      const rows = buildRail([milestone("2026-08-29"), sameDay], NOW, mode);
+      expect(rows.find((row) => row.type === "day" && row.dayKey === "2026-08-29"))
+        .toMatchObject({ count: 2, milestones: 1 });
+    }
+  });
+
   it("gives a milestone no clock, since it is a dated all-day event", () => {
     const rows = buildRail([milestone("2026-08-29")], NOW, "forward");
     const item = rows.find((row) => row.type === "item");
