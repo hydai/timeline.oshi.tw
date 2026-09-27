@@ -161,6 +161,25 @@ describe("Home page", () => {
     expect(screen.queryAllByRole("link").length).toBeLessThan(before);
   });
 
+  it("returns to the top of the results after a filter change made far down the rail", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify(typeFilterFixture), { status: 200 })),
+    );
+    render(<Home />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "預定直播" })).toBeInTheDocument());
+    const scroll = vi.spyOn(Element.prototype, "scrollIntoView");
+
+    // Still near the top: the new results are already in view, so nothing moves.
+    await userEvent.click(screen.getByRole("button", { name: "預定直播" }));
+    expect(scroll).not.toHaveBeenCalled();
+
+    // Scrolled far down the rail: jump back so the new results start in view.
+    vi.spyOn(Element.prototype, "getBoundingClientRect").mockReturnValue(new DOMRect(0, -2000, 300, 40));
+    await userEvent.click(screen.getByRole("button", { name: "重要里程碑" }));
+    expect(scroll).toHaveBeenCalledWith({ block: "start" });
+  });
+
   it("offers a way back from a type with nothing in it", async () => {
     vi.stubGlobal(
       "fetch",

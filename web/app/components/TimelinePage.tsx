@@ -28,7 +28,7 @@ import ChannelAvatar from "./ChannelAvatar";
 import { useShareLink } from "./useShareLink";
 import { useTimelineUrl } from "./useTimelineUrl";
 import { channelProfiles } from "@/lib/channel-aliases";
-import { EMPTY_SELECTION, isArchiveMonth, timelineHref } from "@/lib/timeline-url";
+import { EMPTY_SELECTION, isArchiveMonth, timelineHref, type TimelineSelection } from "@/lib/timeline-url";
 
 const SNAPSHOT_URL = process.env.NEXT_PUBLIC_SNAPSHOT_URL ?? "https://data.oshi.tw/streams/v1/snapshot.json";
 const ARCHIVE_INDEX_URL = archiveIndexUrl(SNAPSHOT_URL);
@@ -113,6 +113,15 @@ function TimelineContent({ snap, archiveIndex, error, archiveError, nowMs, load 
   const [archiveLoading, setArchiveLoading] = useState(false);
   const [monthError, setMonthError] = useState(false);
   const railRef = useRef<HTMLDivElement>(null);
+  const filtersTopRef = useRef<HTMLDivElement>(null);
+
+  // A filter changed far down the rail would otherwise leave the reader in the middle of
+  // the new results. Typing a search is left alone, so the page never jumps mid-word.
+  const refilter = (patch: Partial<TimelineSelection>) => {
+    update(patch);
+    const top = filtersTopRef.current;
+    if (top && top.getBoundingClientRect().top < 0) top.scrollIntoView({ block: "start" });
+  };
 
   const snapshotTimeline = useMemo(() => snap ? buildTimeline(snap) : [], [snap]);
   const channelStatuses = useMemo(() => buildChannelStatuses(snapshotTimeline, nowMs), [nowMs, snapshotTimeline]);
@@ -245,14 +254,14 @@ function TimelineContent({ snap, archiveIndex, error, archiveError, nowMs, load 
     ? timelineHref({ ...EMPTY_SELECTION, selectedChannelId }) : null;
   const share = useShareLink(`${shareHref} ${channelHref ?? ""}`);
 
-  const clearWho = () => update({ query: "", selectedGroup: null, selectedChannelId: null });
+  const clearWho = () => refilter({ query: "", selectedGroup: null, selectedChannelId: null });
   const whoFiltered = Boolean(query || selectedGroup || selectedChannelId);
   const emptyAction = "rounded-pill bg-[var(--bg-surface-muted)] px-4 py-2 text-sm font-semibold text-text-primary hover:bg-[var(--bg-popover-hover)] focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-accent-pink";
   // A dead end names its own way out: loosen whichever filter is doing the narrowing.
   const emptyActions = selectedKind || whoFiltered ? (
     <>
       {selectedKind && (
-        <button type="button" className={emptyAction} onClick={() => update({ selectedKind: null })}>改看全部類型</button>
+        <button type="button" className={emptyAction} onClick={() => refilter({ selectedKind: null })}>改看全部類型</button>
       )}
       {whoFiltered && <button type="button" className={emptyAction} onClick={clearWho}>改看所有 VTuber</button>}
     </>
@@ -290,6 +299,8 @@ function TimelineContent({ snap, archiveIndex, error, archiveError, nowMs, load 
                 )}
               </div>
             )}
+            {/* Where the sticky bar rests; scrolled to after a filter change. */}
+            <div ref={filtersTopRef} className="scroll-mt-2" aria-hidden />
             <CommandBar
               picker={(
                 <VTuberPicker
@@ -298,18 +309,18 @@ function TimelineContent({ snap, archiveIndex, error, archiveError, nowMs, load 
                   groups={filterStats.groups}
                   memberTotalCount={filterStats.memberTotalCount}
                   selectedGroup={selectedGroup}
-                  onGroupSelect={(group) => update({ selectedGroup: group })}
+                  onGroupSelect={(group) => refilter({ selectedGroup: group })}
                   vtubers={filterStats.vtubers}
                   selectedChannelId={selectedChannelId}
                   // The search was only the way to find this VTuber; keeping it would narrow nothing.
-                  onChannelSelect={(channelId) => update({ selectedChannelId: channelId, query: "" })}
+                  onChannelSelect={(channelId) => refilter({ selectedChannelId: channelId, query: "" })}
                   onClear={clearWho}
                   statuses={channelStatuses}
                   nowMs={nowMs}
                 />
               )}
               typeFilter={(
-                <TimelineTypeFilter counts={kindCounts} selected={selectedKind} onSelect={(kind) => update({ selectedKind: kind })} />
+                <TimelineTypeFilter counts={kindCounts} selected={selectedKind} onSelect={(kind) => refilter({ selectedKind: kind })} />
               )}
               actions={(
                 <button
