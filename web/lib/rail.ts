@@ -36,8 +36,8 @@ function ms(iso: string | undefined): number {
  */
 export function railTime(item: TimelineItem): number {
   if (item.kind === "milestone") return ms(item.milestone.date);
-  const { actualStart, scheduledStart, actualEnd } = item.stream;
-  return ms(actualStart) || ms(scheduledStart) || ms(actualEnd);
+  const { actualStart, scheduledStart, actualEnd, estimatedEnd } = item.stream;
+  return ms(actualStart) || ms(scheduledStart) || ms(actualEnd ?? estimatedEnd);
 }
 
 function toDated(item: TimelineItem): Dated {

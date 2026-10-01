@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { Users, VideoOff } from "lucide-react";
 import type { SnapshotChannel, SnapshotStream } from "@/lib/types";
-import { formatRelativeTime } from "@/lib/time";
+import { formatClock, formatRelativeTime, taipeiDayKey } from "@/lib/time";
 import ChannelAvatar from "./ChannelAvatar";
 
 type Kind = "live" | "upcoming" | "recent";
@@ -18,7 +18,8 @@ const STATUS: Record<Kind, { label: string; cls: string; style: React.CSSPropert
 function timeLabel(kind: Kind, s: SnapshotStream, nowMs: number): string {
   if (kind === "live") return s.actualStart ? `${formatRelativeTime(s.actualStart, nowMs)}開始` : "直播中";
   if (kind === "upcoming") return s.scheduledStart ? formatRelativeTime(s.scheduledStart, nowMs) : "即將開始";
-  return s.actualEnd ? formatRelativeTime(s.actualEnd, nowMs) : "";
+  const end = s.actualEnd ?? s.estimatedEnd;
+  return end ? `${s.estimatedEnd ? "約 " : ""}${formatRelativeTime(end, nowMs)}` : "";
 }
 
 function Thumbnail({ src, live }: { src: string | null; live: boolean }) {
@@ -63,12 +64,12 @@ export default function StreamCard({ kind, stream, channel, nowMs }: {
 }) {
   const status = STATUS[kind];
   const relative = timeLabel(kind, stream, nowMs);
+  const twitch = stream.platform === "twitch";
+  const Wrapper = stream.url ? "a" : "article";
 
   return (
-    <a
-      href={stream.url}
-      target="_blank"
-      rel="noopener noreferrer"
+    <Wrapper
+      {...(stream.url ? { href: stream.url, target: "_blank", rel: "noopener noreferrer" } : {})}
       className={`glass flex items-center gap-3 rounded-2xl p-2.5 transition-transform hover:-translate-y-0.5 sm:gap-4 sm:p-3.5 ${kind === "recent" ? "opacity-[0.78]" : ""}`}
       style={kind === "live" ? { boxShadow: "0 0 0 1.5px var(--accent-pink), 0 10px 36px rgba(236,72,153,0.18)" } : undefined}
     >
@@ -76,8 +77,15 @@ export default function StreamCard({ kind, stream, channel, nowMs }: {
 
       <div className="flex min-w-0 flex-1 flex-col gap-1.5 sm:gap-2.5">
         <span className="line-clamp-2 text-[12.5px] font-semibold leading-[1.4] text-text-primary sm:text-base sm:leading-[1.46]">
-          {stream.title}
+          {stream.title || "直播紀錄"}
         </span>
+        {twitch && (
+          <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[10.5px] text-text-secondary sm:text-xs">
+            <span className="rounded-pill bg-[var(--bg-surface-muted)] px-2 py-0.5 font-bold">Twitch</span>
+            {stream.categoryName && <span>{stream.categoryName}</span>}
+            {kind === "recent" && <span>直播紀錄 · 無重播</span>}
+          </span>
+        )}
         <span className="flex min-w-0 items-center gap-1.5 sm:gap-2">
           <ChannelAvatar src={channel.avatar} name={channel.name} size={20} />
           <span className="truncate text-[11px] font-bold text-text-secondary sm:text-[13px]">{channel.name}</span>
@@ -92,6 +100,16 @@ export default function StreamCard({ kind, stream, channel, nowMs }: {
             {relative}
           </span>
         </span>
+        {twitch && kind === "recent" && stream.actualStart && (
+          <span className="text-[10.5px] text-text-secondary sm:text-xs">
+            開台 {taipeiDayKey(stream.actualStart)} {formatClock(stream.actualStart)}（台北）
+          </span>
+        )}
+        {twitch && kind === "recent" && !stream.url && stream.channelUrl && (
+          <a href={stream.channelUrl} target="_blank" rel="noopener noreferrer" className="w-fit text-[11px] text-text-secondary underline underline-offset-2 sm:text-xs">
+            前往 Twitch 頻道
+          </a>
+        )}
       </div>
 
       <div className="hidden w-[104px] flex-none flex-col items-end gap-1.5 sm:flex">
@@ -110,6 +128,6 @@ export default function StreamCard({ kind, stream, channel, nowMs }: {
           </span>
         )}
       </div>
-    </a>
+    </Wrapper>
   );
 }

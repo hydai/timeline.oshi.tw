@@ -73,7 +73,7 @@ export default function TimelinePage({ name }: { name?: string }) {
   useEffect(() => {
     mounted.current = true;
     load();
-    const dataTimer = setInterval(load, 300_000);
+    const dataTimer = setInterval(load, 60_000);
     const clockTimer = setInterval(() => setNowMs(Date.now()), 60_000);
     return () => {
       mounted.current = false;
@@ -131,7 +131,7 @@ function TimelineContent({ snap, archiveIndex, error, archiveError, nowMs, load 
     if (top && top.getBoundingClientRect().top < 0) top.scrollIntoView({ block: "start" });
   };
 
-  const snapshotTimeline = useMemo(() => snap ? buildTimeline(snap) : [], [snap]);
+  const snapshotTimeline = useMemo(() => snap ? buildTimeline(snap, nowMs) : [], [snap, nowMs]);
   const channelStatuses = useMemo(() => buildChannelStatuses(snapshotTimeline, nowMs), [nowMs, snapshotTimeline]);
   const today = taipeiDayKey(new Date(nowMs).toISOString());
   // Milestone links from before 即將到來 existed can name a month still ahead. Its

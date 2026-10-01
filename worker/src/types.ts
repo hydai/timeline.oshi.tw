@@ -1,15 +1,25 @@
-export interface Env {
-  DB: D1Database;
-  DATA_PUBLIC: R2Bucket;
+export interface Env extends Pick<Cloudflare.Env, "DB" | "DATA_PUBLIC"> {
   YOUTUBE_API_KEY: string;
   TWVTUBER_BASE: string;
   YT_REFERER: string;
   MANUAL_TRIGGER_TOKEN?: string;
+  TWITCH_CLIENT_ID?: string;
+  TWITCH_CLIENT_SECRET?: string;
+  TWITCH_WEBHOOK_SECRET?: string;
+  TWITCH_WEBHOOK_URL?: string;
 }
 
 export type StreamStatus = "live" | "upcoming" | "ended";
 
 export interface StreamRecord {
+  platform?: "youtube" | "twitch";
+  platformStreamId?: string;
+  categoryName?: string;
+  initialTitle?: string;
+  initialCategoryName?: string;
+  channelUrl?: string;
+  estimatedEnd?: string;
+  expiresAt?: string;
   videoId: string;
   channelId: string;
   status: StreamStatus;
@@ -47,6 +57,7 @@ export interface RosterEntry {
   youtubeSubs: number | null;
   avatar: string | null;
   twvtuberId: string;
+  twitchLogin?: string;
 }
 
 export interface Milestone {
@@ -98,11 +109,19 @@ export interface SnapshotChannel {
 }
 
 export interface SnapshotStream {
+  platform?: "youtube" | "twitch";
+  platformStreamId?: string;
+  categoryName?: string;
+  initialTitle?: string;
+  initialCategoryName?: string;
+  channelUrl?: string;
+  estimatedEnd?: string;
+  expiresAt?: string;
   videoId: string;
   channelId: string;
   title: string;
   thumbnail: string | null;
-  url: string;
+  url: string | null;
   actualStart?: string;
   scheduledStart?: string;
   actualEnd?: string;

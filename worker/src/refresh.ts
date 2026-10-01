@@ -9,8 +9,10 @@ import { applyPrismGroups, indexPrismGroups, readPrismStreamers, type PrismStrea
 import { derivePermanentMilestones, indexRosterByYoutubeId } from "./twvtuber";
 import { buildSnapshot } from "./snapshot";
 import { readSnapshot, writeSnapshot } from "./r2";
-import { publishArchive } from "./archive";
+import { publishArchive, type ArchiveScope } from "./archive";
 import { processNextOnboarding, registerOnboardingCandidates, timelineOnboardingCandidates } from "./onboarding";
+import { tryRefreshTwitch } from "./twitch";
+import { acquireTwitchLease, releaseTwitchLease } from "./twitch-db";
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -25,8 +27,8 @@ export interface RefreshDeps {
 
 async function collectCurrentStreams(db: D1Database, nowMs: number): Promise<StreamRecord[]> {
   const [live, upcoming, ended] = await Promise.all([
-    listStreamsByStatus(db, "live"),
-    listStreamsByStatus(db, "upcoming"),
+    listStreamsByStatus(db, "live", new Date(nowMs).toISOString()),
+    listStreamsByStatus(db, "upcoming", new Date(nowMs).toISOString()),
     listEndedStreamsSince(db, new Date(nowMs - 7 * DAY).toISOString()),
   ]);
   return [...live, ...upcoming, ...ended];
@@ -78,6 +80,28 @@ async function listSnapshotMilestones(db: D1Database, nowMs: number): Promise<Mi
   const start = new Date(nowMs - 7 * DAY).toISOString().slice(0, 10);
   const end = new Date(nowMs + 31 * DAY).toISOString().slice(0, 10);
   return listMilestonesBetween(db, start, end);
+}
+
+/** All publishers acquire the same lease before reading D1. A delayed YouTube
+ * refresh must not overwrite a webhook's newer Twitch snapshot with older rows. */
+export async function publishCurrentSnapshot(
+  env: Env, roster: Map<string, RosterEntry>, nowIso: string, heavyRefreshedAtIso: string,
+  scope: ArchiveScope = "current-month",
+): Promise<Snapshot | null> {
+  const owner = await acquireTwitchLease(env.DB, "publication-lock", new Date().toISOString(), 300);
+  if (!owner) return readSnapshot(env.DATA_PUBLIC);
+  try {
+    const previous = await readSnapshot(env.DATA_PUBLIC);
+    nowIso = previous && previous.generated_at > nowIso ? previous.generated_at : nowIso;
+    heavyRefreshedAtIso = previous && previous.heavy_refreshed_at > heavyRefreshedAtIso ? previous.heavy_refreshed_at : heavyRefreshedAtIso;
+    const nowMs = Date.parse(nowIso);
+    const snapshot = buildSnapshot({ channels: await listEnabledChannels(env.DB),
+      streams: await collectCurrentStreams(env.DB, nowMs), roster,
+      milestones: await listSnapshotMilestones(env.DB, nowMs), nowIso, heavyRefreshedAtIso });
+    await writeSnapshot(env.DATA_PUBLIC, snapshot);
+    await publishArchive(env.DB, env.DATA_PUBLIC, roster, nowIso, scope);
+    return snapshot;
+  } finally { await releaseTwitchLease(env.DB, "publication-lock", owner); }
 }
 
 export async function heavyRefresh(env: Env, deps: RefreshDeps): Promise<Snapshot> {
@@ -157,6 +181,7 @@ export async function heavyRefresh(env: Env, deps: RefreshDeps): Promise<Snapsho
   // "SquareLive", and still lists 銀河 Galaxy under 靛堂 after it went solo. Prism wins
   // for every channel it carries; a prism outage leaves the roster untouched.
   roster = applyPrismGroups(roster, indexPrismGroups(prismStreamers));
+  await tryRefreshTwitch(env, { now: nowIso, discovery: { tracked: trackedIds, prism: prismStreamers, roster } });
 
   // Only one whole-channel history scan runs per heavy pass. D1 keeps the durable
   // pending/running/completed state, so failures retry and duplicate cron delivery is safe.
@@ -167,12 +192,8 @@ export async function heavyRefresh(env: Env, deps: RefreshDeps): Promise<Snapsho
   }, nowIso);
 
   // 5. Publish a lightweight current snapshot plus the permanent monthly archive.
-  const rows = await listEnabledChannels(env.DB);
-  const streams = await collectCurrentStreams(env.DB, nowMs);
-  const milestones = await listSnapshotMilestones(env.DB, nowMs);
-  const snapshot = buildSnapshot({ channels: rows, streams, roster, milestones, nowIso, heavyRefreshedAtIso: nowIso });
-  await writeSnapshot(env.DATA_PUBLIC, snapshot);
-  await publishArchive(env.DB, env.DATA_PUBLIC, roster, nowIso);
+  const snapshot = await publishCurrentSnapshot(env, roster, nowIso, nowIso, "full");
+  if (!snapshot) throw new Error("initial snapshot publication is busy");
   return snapshot;
 }
 
@@ -212,15 +233,7 @@ export async function lightRefresh(env: Env, deps: RefreshDeps): Promise<Snapsho
       twvtuberId: c.twvtuber_id,
     });
   }
-  const streams = await collectCurrentStreams(env.DB, nowMs);
-  const milestones = await listSnapshotMilestones(env.DB, nowMs);
-  const snapshot = buildSnapshot({
-    channels, streams, roster, milestones,
-    nowIso, heavyRefreshedAtIso: last.heavy_refreshed_at,
-  });
-  await writeSnapshot(env.DATA_PUBLIC, snapshot);
-  await publishArchive(env.DB, env.DATA_PUBLIC, roster, nowIso, "current-month");
-  return snapshot;
+  return publishCurrentSnapshot(env, roster, nowIso, last.heavy_refreshed_at);
 }
 
 export { collectCurrentStreams, readSnapshot, DAY };

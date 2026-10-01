@@ -1,0 +1,6 @@
+{
+  "version": "1.0.0", "generated_at": "2026-10-01T10:00:00.000Z", "month": "2026-10",
+  "channels": { "UCdemo": { "name": "示範 VTuber", "handle": "@timeline_demo", "avatar": null, "group": null, "nationality": "TW", "youtube_subs": null, "twvtuber_id": "demo" } },
+  "streams": [{ "platform": "twitch", "platformStreamId": "9000", "videoId": "twitch:9000", "channelId": "UCdemo", "title": "【示範資料】一起蓋一座海邊小屋", "categoryName": "Minecraft", "thumbnail": null, "url": null, "channelUrl": "https://www.twitch.tv/", "actualStart": "2026-10-01T03:00:00.000Z", "estimatedEnd": "2026-10-01T05:00:00.000Z" }],
+  "milestones": []
+}

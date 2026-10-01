@@ -1,0 +1,4 @@
+{
+  "version": "1.0.0", "generated_at": "2026-10-01T10:00:00.000Z", "grouping": "Asia/Taipei", "facets": "channel",
+  "months": [{ "month": "2026-10", "streams": 1, "milestones": 0, "by_channel": { "UCdemo": { "streams": 1, "milestones": 0 } } }]
+}

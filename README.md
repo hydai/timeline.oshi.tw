@@ -11,6 +11,7 @@
 - **河道式時間軸**：四種泳道（直播中／預定開台／已完成／里程碑）依時間匯流成單一河道
 - **搜尋與篩選**：可即時搜尋 VTuber，依內容類型快速切換，並透過與 VODs 一致的大頭貼列單選個別 VTuber
 - **永久歷史**：已完成直播與里程碑保存在 D1，前端依月份從 R2 封存按需載入，不會再隨近期視窗滾動消失
+- **Twitch 事件紀錄**：接收開台、下播與標題／分類變更；經主播同意的紀錄可長期保留，不依賴 VOD
 - **深／淺色模式**：淺色以淺藍、淺粉、白為主體；深色為對應色調
 - **前端全靜態**：Next.js 靜態輸出，執行期不需伺服器
 - **後端零常駐**：資料由 Cron 觸發的 Worker 週期性產生當前快照與月份封存
@@ -35,7 +36,7 @@ twvtuber REST API ──────────┘         （Cron 觸發）   
   - 另有 token 保護的手動觸發：`POST /refresh?mode=heavy|light`，以及單頻道 `mode=backfill&channel=UC...&dry=0`（帶 `X-Trigger-Token` 標頭），供除錯與 curator 修復用。
 - **`web/` — 前端**（Next.js 16 靜態輸出，部署於 Cloudflare Pages）
   - 於瀏覽器端抓取當前快照與輕量封存索引。「全部」固定顯示直播／預定活動，以及按月份展開的已完成直播與里程碑，可由底部查看更早月份；切換歷史月份不會隱藏直播／預定活動。年月選擇器僅在「已完成」和「里程碑」顯示。
-  - 重新整理會先還原瀏覽器快取，過期資料在背景重新驗證：快照有效 1 分鐘、索引與當月封存 5 分鐘、過去月份 1 小時；頁面仍每 5 分鐘檢查更新。可先顯示的舊資料上限分別為快照 15 分鐘、索引 1 天、月份 7 天；更新失敗保留畫面並提供重試。快取最多 8 筆、約 4 MB，儲存空間不可用時改由網路載入。頁首與首頁連結直接包含於靜態 HTML。
+  - 重新整理會先還原瀏覽器快取，過期資料在背景重新驗證：快照有效 1 分鐘、索引與當月封存 5 分鐘、過去月份 1 小時；頁面每分鐘檢查更新。可先顯示的舊資料上限分別為快照 15 分鐘、索引 1 天、月份 7 天；更新失敗保留畫面並提供重試。快取最多 8 筆、約 4 MB，儲存空間不可用時改由網路載入。頁首與首頁連結直接包含於靜態 HTML。
 
 ## 技術棧
 
@@ -88,6 +89,34 @@ npm run db:migrate:remote
 wrangler d1 execute timeline-streams --remote --file seed/seed.sql
 npm run deploy
 ```
+
+### 啟用 Twitch
+
+使用 [Helix](https://dev.twitch.tv/docs/api/reference/) 與 [EventSub webhook](https://dev.twitch.tv/docs/eventsub/handling-webhook-events/)，不依賴待機室、排程或 VOD。第一版使用應用程式 client credentials，不建置主播 OAuth 頁面。
+
+1. 建立 Twitch Developer 應用程式，取得 Client ID / Client Secret。
+2. 套用所有 migration（含 `0004_twitch.sql`）。先發布支援 Twitch 的前端，再啟用 Worker，因為 Twitch 歷史的 `url` 為 `null`。
+3. 設定下列 Worker secrets；本機可參考 [`worker/.dev.vars.example`](worker/.dev.vars.example)。`TWITCH_WEBHOOK_SECRET` 使用隨機的 10–100 個 ASCII 字元，callback 必須是公開 HTTPS、port 443 的 Worker `/twitch/eventsub`，**不是 R2 資料網域**。
+
+   ```bash
+   wrangler secret put TWITCH_CLIENT_ID
+   wrangler secret put TWITCH_CLIENT_SECRET
+   wrangler secret put TWITCH_WEBHOOK_SECRET
+   wrangler secret put TWITCH_WEBHOOK_URL
+   ```
+
+4. 部署 Worker 後執行一次已驗證的 `POST /refresh?mode=heavy`，或等待下次 heavy cron：從已追蹤頻道的 Prism `socialLinks.twitch` 與 twvtuber `twitch_id` 找出候選帳號，經 Helix 驗證成數字 ID 後訂閱 `stream.online` v1、`stream.offline` v1、`channel.update` v2。來源衝突、重複綁定或失效帳號不會自動追蹤。
+5. 用 `GET /twitch/accounts`（`X-Trigger-Token`）檢查映射狀態、數字 ID 與歷史同意時間。`POST /twitch/refresh` 可單獨補抓 Twitch 狀態及修復訂閱；初次帳號探索仍由 heavy refresh 執行。
+
+已獲同意的 30 個候選帳號明列於 [`worker/seed/twitch-consents.json`](worker/seed/twitch-consents.json)，以 2026-10-01 操作者確認為依據；這不代表已完成 Twitch API 實際驗證。新增帳號不會自動繼承長期保存同意。管理者可用 `POST /twitch/history` 與 `X-Trigger-Token` 記錄 `{ "userId": "數字ID", "granted": true, "evidence": "同意依據" }`；`granted: false` 會停止追蹤、刪除該帳號的直播紀錄並重寫公開封存。既有 CDN／瀏覽器快取仍需等待失效；若要求立即撤下，另需清除 CDN 快取。重新授權不會把先前未授權資料轉成永久歷史。
+
+通知先驗證 HMAC 與時間，再寫入 D1 inbox 去重；背景處理失敗由每 5 分鐘 cron 重試並以 Get Streams 補漏。訂閱每小時對帳，heavy refresh 會提前對帳。原始事件僅保留 24 小時；未同意帳號只顯示限時直播狀態，不進歷史封存。未設定 Client ID / Secret 時不呼叫 Twitch API，YouTube 維持原流程。
+
+紀錄保存開台時間、首次**觀測到**的標題／分類與後續變更；歷史卡片顯示首次觀測值。下播通知沒有精確結束時間，故使用通知／輪詢觀測時間作為 `estimatedEnd`。未啟用前的歷史無法回補；漏掉通知且在兩次輪詢之間結束的短直播可能無法發現，來不及取得標題時保留空值，不編造開台標題。變更明細留在 D1，第一版不提供前端變更列表。
+
+前端延用原 canonical channel ID 和人物篩選。Twitch 直播卡片連到頻道；結束後標示「直播紀錄 · 無重播」，不生成假的影片網址。`videoId` 使用 `twitch:<streamId>`，並附 `platform`、`platformStreamId`、`categoryName`、`initialTitle`、`initialCategoryName`、`channelUrl`、`estimatedEnd`；限時狀態另附 `expiresAt`。YouTube 欄位保持原樣。
+
+無需金鑰的示範預覽（全是假資料）：在 `web/` 執行 `NEXT_PUBLIC_SNAPSHOT_URL=/twitch-sample/snapshot.json npm run dev`。
 
 ### 前端 Web（`web/`）
 

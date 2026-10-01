@@ -1,0 +1,7 @@
+YOUTUBE_API_KEY=
+MANUAL_TRIGGER_TOKEN=
+# Optional Twitch support. Leave empty to keep ingestion disabled.
+TWITCH_CLIENT_ID=
+TWITCH_CLIENT_SECRET=
+TWITCH_WEBHOOK_SECRET=
+TWITCH_WEBHOOK_URL=

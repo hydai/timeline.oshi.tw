@@ -35,7 +35,7 @@ twvtuber REST API ───────────┘         (Cron-triggered) 
   - Token-gated manual triggers cover `POST /refresh?mode=heavy|light` and one-channel repair through `mode=backfill&channel=UC...&dry=0` (with an `X-Trigger-Token` header).
 - **`web/` — the frontend** (Next.js 16 static export, deployed to Cloudflare Pages)
   - Fetches the current snapshot and lightweight archive index. All always shows live/upcoming activity plus an expanded month of completed streams and milestones, with an older-month link at the bottom. Changing the history month keeps live/upcoming activity visible. The year/month picker appears only in Completed and Milestones.
-  - Reloads restore browser-cached data before background revalidation: snapshots stay fresh for 1 minute, indexes/current-month archives for 5 minutes, and older months for 1 hour. The page still checks for updates every 5 minutes. Stale data may be restored for up to 15 minutes (snapshot), 1 day (index), or 7 days (month); failed updates keep existing content visible with a retry. Storage is capped at 8 entries/~4 MB, with a network fallback when storage is unavailable. The header and home link are included in the static HTML.
+  - Reloads restore browser-cached data before background revalidation: snapshots stay fresh for 1 minute, indexes/current-month archives for 5 minutes, and older months for 1 hour. The page checks for updates every minute. Stale data may be restored for up to 15 minutes (snapshot), 1 day (index), or 7 days (month); failed updates keep existing content visible with a retry. Storage is capped at 8 entries/~4 MB, with a network fallback when storage is unavailable. The header and home link are included in the static HTML.
 
 ## Tech stack
 
@@ -88,6 +88,26 @@ npm run db:migrate:remote
 wrangler d1 execute timeline-streams --remote --file seed/seed.sql
 npm run deploy
 ```
+
+### Optional Twitch integration
+
+Twitch uses [Helix](https://dev.twitch.tv/docs/api/reference/) and [EventSub webhooks](https://dev.twitch.tv/docs/eventsub/handling-webhook-events/), independently of schedules or VOD retention. This version uses app client credentials; no broadcaster OAuth page is required.
+
+1. Register a Twitch Developer application and obtain its Client ID / Secret.
+2. Apply all D1 migrations, including `0004_twitch.sql`. Deploy the updated frontend **before enabling ingestion**: historical Twitch records have `url: null`.
+3. Set Worker secrets `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET`, `TWITCH_WEBHOOK_SECRET`, and `TWITCH_WEBHOOK_URL` with `wrangler secret put`. The signing secret must be 10–100 random ASCII characters. The callback must be the public HTTPS/443 Worker URL ending in `/twitch/eventsub`, not the R2 data domain. See [`worker/.dev.vars.example`](worker/.dev.vars.example).
+4. Run authenticated `POST /refresh?mode=heavy`, or wait for heavy cron. Discovery merges tracked channels' Prism `socialLinks.twitch` and twvtuber `twitch_id`, verifies numeric Twitch IDs, then reconciles `stream.online` v1, `stream.offline` v1 and `channel.update` v2. Conflicting, duplicate or missing identities are not tracked automatically.
+5. Inspect `GET /twitch/accounts` with `X-Trigger-Token`. `POST /twitch/refresh` reconciles Twitch alone; initial discovery still requires a heavy pass.
+
+[`worker/seed/twitch-consents.json`](worker/seed/twitch-consents.json) explicitly lists the 30 candidates approved by the operator on 2026-10-01; API verification still happens at runtime. Newly discovered accounts do not inherit that approval. Authenticated `POST /twitch/history` accepts `{ "userId": "numeric ID", "granted": true, "evidence": "permission record" }`. Revoking with `granted: false` disables tracking, deletes stream history, and rewrites public archives. Existing CDN/browser caches expire separately; immediate takedowns also need CDN purging. A later grant does not promote older unapproved data into permanent history.
+
+HMAC-verified notifications are persisted and deduplicated before acknowledgement. Five-minute polling retries the inbox and reconciles live state; subscriptions are checked hourly and on heavy refresh. Raw notifications expire after 24 hours. Unapproved accounts have temporary live status only, never archived history. Without Twitch credentials, ingestion is disabled and YouTube continues normally.
+
+The record preserves stream start, the **first observed** title/category and subsequent changes. History cards use that first observation, show “no replay”, and only offer a separate channel link. End times are observational estimates (`estimatedEnd`), not precise broadcast end timestamps. Pre-integration history cannot be reconstructed; a missed notification for a stream entirely between polling runs can be missed. Unobserved titles remain empty. Change details are stored in D1 but do not yet have a UI.
+
+Canonical channel IDs and filters remain unchanged. Twitch IDs are namespaced as `twitch:<streamId>` in `videoId`, with optional `platform`, `platformStreamId`, `categoryName`, `initialTitle`, `initialCategoryName`, `channelUrl`, `estimatedEnd`, and temporary `expiresAt`. YouTube records retain their existing shape. The frontend now polls once per minute.
+
+Preview without credentials using fictional data: run `NEXT_PUBLIC_SNAPSHOT_URL=/twitch-sample/snapshot.json npm run dev` from `web/`.
 
 ### Frontend (`web/`)
 
