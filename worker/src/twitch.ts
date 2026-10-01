@@ -3,7 +3,7 @@ import { boundedText, twitchApi, twitchConfigured, type TwitchApi } from "./twit
 import {
   acquireTwitchLease, endTwitchStream, observeTwitchStream, pruneTwitchData,
   releaseTwitchLease, startTwitchStream, syncTwitchAccounts, twitchAccounts,
-  updateTwitchChannel,
+  updateTwitchChannel, updateTwitchMetadata,
 } from "./twitch-db";
 import { twitchCandidates } from "./twitch-accounts";
 import type { PrismStreamer } from "./prism";
@@ -83,14 +83,16 @@ async function drainInbox(env: Env, api: TwitchApi, clock: () => string): Promis
       await startTwitchStream(env.DB, event.broadcaster_user_id, event.id, new Date(event.started_at).toISOString(), row.sent_at);
       // A title notification can be delivered and processed before the online
       // notification. Replay the retained, signed metadata for this session.
-      const updates = await env.DB.prepare(`SELECT payload,sent_at FROM twitch_inbox
-        WHERE user_id=?1 AND type='channel.update' AND sent_at>=?2 ORDER BY sent_at`)
-        .bind(row.user_id, new Date(event.started_at).toISOString())
+      const updates = await env.DB.prepare(`SELECT i.payload,i.sent_at FROM twitch_inbox i
+        JOIN twitch_streams s ON s.stream_id=?2 AND s.user_id=i.user_id
+        WHERE i.user_id=?1 AND i.type='channel.update' AND i.sent_at>=s.started_at
+          AND (s.ended_at IS NULL OR i.sent_at<s.ended_at) ORDER BY i.sent_at`)
+        .bind(row.user_id, event.id)
         .all<{ payload: string; sent_at: string }>();
       for (const update of updates.results) {
         const value = channelUpdate.parse(JSON.parse(update.payload));
-        await updateTwitchChannel(env.DB, row.user_id, { broadcaster_id: row.user_id,
-          title: value.title, game_id: value.category_id, game_name: value.category_name }, update.sent_at);
+        await updateTwitchMetadata(env.DB, event.id, {
+          title: value.title, categoryId: value.category_id, categoryName: value.category_name }, update.sent_at);
       }
       started.set(row.user_id, event.id);
     } else if (row.type === "stream.offline") {
@@ -128,7 +130,8 @@ async function syncSubscriptions(env: Env, api: TwitchApi, now: string): Promise
   const subscriptions = await api.subscriptions();
   const callback = new URL(env.TWITCH_WEBHOOK_URL).href;
   for (const s of subscriptions.filter(s => s.transport.callback === callback && TYPES.some(([type]) => type === s.type))) {
-    if (!accounts.some(a => a.user_id === s.condition.broadcaster_user_id) || !["enabled", "webhook_callback_verification_pending"].includes(s.status)) {
+    if (!TYPES.some(([type, version]) => type === s.type && version === s.version) ||
+      !accounts.some(a => a.user_id === s.condition.broadcaster_user_id) || !["enabled", "webhook_callback_verification_pending"].includes(s.status)) {
       await api.unsubscribe(s.id);
     }
   }

@@ -86,9 +86,34 @@ describe("Twitch account discovery", () => {
     await syncTwitchAccounts(env.DB, client, candidates, NOW);
     expect((await twitchAccounts(env.DB))[0]).toMatchObject({ status: "disabled", history_granted_at: null });
   });
+  it.each(["verified", "missing", "conflict"])("preserves withdrawal while a %s discovery result is in flight", async (outcome) => {
+    await account();
+    const client = api({ usersById: async () => {
+      await setTwitchHistoryPermission(env.DB, "42", false, "withdrawn during Helix lookup", NOW);
+      return outcome === "missing" ? [] : [{ id: "42", login: "example" }];
+    } });
+    await syncTwitchAccounts(env.DB, client, [{ channelId: "UCtest", login: outcome === "conflict" ? "different" : "example", source: "prism", conflict: false }], NOW);
+    expect((await twitchAccounts(env.DB))[0]).toMatchObject({ status: "disabled", history_granted_at: null, history_revoked_at: NOW });
+    await observeTwitchStream(env.DB, stream, NOW);
+    await refreshTwitch({ ...twitchEnv, TWITCH_WEBHOOK_URL: "https://worker.example/twitch/eventsub" }, { now: NOW, api: client });
+    expect(await env.DB.prepare("SELECT 1 FROM twitch_streams").first()).toBeNull();
+    expect(client.subscribe).not.toHaveBeenCalled();
+  });
 });
 
 describe("Twitch stream lifecycle", () => {
+  it("rechecks consent atomically if withdrawal happens just before stream insertion", async () => {
+    await account();
+    const batch = env.DB.batch.bind(env.DB);
+    const intercepted = vi.spyOn(env.DB, "batch").mockImplementationOnce(async <T,>(statements: D1PreparedStatement[]) => {
+      await setTwitchHistoryPermission(env.DB, "42", false, "withdrawn before insertion", NOW);
+      return batch<T>(statements);
+    });
+    try { await startTwitchStream(env.DB, "42", "123", START, NOW); }
+    finally { intercepted.mockRestore(); }
+    expect(await env.DB.prepare("SELECT 1 FROM twitch_streams").first()).toBeNull();
+    expect((await twitchAccounts(env.DB))[0]?.status).toBe("disabled");
+  });
   it("preserves the first observed title/category, records changes, and archives without a VOD", async () => {
     await account();
     await observeTwitchStream(env.DB, stream, START);
@@ -209,6 +234,32 @@ describe("EventSub and reconciliation", () => {
     await updateTwitchMetadata(env.DB, "123", { title: "earlier", categoryId: "2", categoryName: "Music" }, START);
     expect((await listStreamsByStatus(env.DB, "live", NOW))[0]).toMatchObject({ initialTitle: "earlier", title: "開台雜談" });
   });
+  it.each(["offline", "next-online", "beyond-batch", "existing-row"])("bounds metadata replay at the %s session boundary", async (boundary) => {
+    await account();
+    if (boundary === "existing-row") await startTwitchStream(env.DB, "42", "123", START, START);
+    const queue = async (type: string, event: unknown, time: string) => {
+      expect((await handleTwitchWebhook(await signed(type, event, { time }), twitchEnv, NOW)).status).toBe(204);
+    };
+    const oldOnline = { broadcaster_user_id: "42", id: "123", type: "live", started_at: START };
+    await queue("stream.online", oldOnline, "2026-10-01T09:51:00.000Z");
+    if (boundary === "beyond-batch") {
+      // The next lifecycle boundary must be honored even outside this drain's 30 rows.
+      for (let i = 1; i < 30; i++) await queue("stream.online", oldOnline, `2026-10-01T09:51:${String(i).padStart(2, "0")}.000Z`);
+    }
+    if (boundary === "offline") {
+      await queue("stream.offline", { broadcaster_user_id: "42", id: "123" }, "2026-10-01T09:54:00.000Z");
+      await queue("channel.update", { broadcaster_user_id: "42", title: "離線編輯", category_id: "0", category_name: "" }, "2026-10-01T09:54:30.000Z");
+    }
+    // Delivery time is later than the first title update; session time is not.
+    await queue("stream.online", { broadcaster_user_id: "42", id: "456", type: "live", started_at: "2026-10-01T17:55:00+08:00" }, "2026-10-01T09:57:00.000Z");
+    await queue("channel.update", { broadcaster_user_id: "42", title: "下一場標題", category_id: "2", category_name: "Minecraft" }, "2026-10-01T09:56:00.000Z");
+    await refreshTwitch(twitchEnv, { now: NOW, eventsOnly: true, api: api() });
+    expect(await env.DB.prepare("SELECT initial_title FROM twitch_streams WHERE stream_id='123'").first()).toEqual({ initial_title: null });
+    if (boundary === "beyond-batch") await refreshTwitch(twitchEnv, { now: NOW, eventsOnly: true, api: api() });
+    expect(await env.DB.prepare("SELECT initial_title,initial_category_name FROM twitch_streams WHERE stream_id='456'").first())
+      .toEqual({ initial_title: "下一場標題", initial_category_name: "Minecraft" });
+    expect((await env.DB.prepare("SELECT * FROM twitch_stream_changes WHERE stream_id='123'").all()).results).toEqual([]);
+  });
   it("reconciles only its own callback and avoids recreating healthy subscriptions", async () => {
     await account();
     const callback = "https://worker.example/twitch/eventsub";
@@ -220,6 +271,19 @@ describe("EventSub and reconciliation", () => {
     expect(client.subscribe).toHaveBeenCalledWith("channel.update", "2", "42");
     await refreshTwitch({ ...twitchEnv, TWITCH_WEBHOOK_URL: callback }, { now: NOW, api: client });
     expect(client.subscriptions).toHaveBeenCalledTimes(1);
+  });
+  it.each(["enabled", "webhook_callback_verification_pending"])("removes a stale %s subscription version without touching other callbacks or types", async (status) => {
+    await account();
+    const callback = "https://worker.example/twitch/eventsub";
+    const stale = { id: "old-version", type: "channel.update", version: "1", status, condition: { broadcaster_user_id: "42" }, transport: { method: "webhook", callback } };
+    const client = api({ subscriptions: async () => [stale,
+      { ...stale, id: "foreign-callback", transport: { method: "webhook", callback: "https://other.example/" } },
+      { ...stale, id: "other-type", type: "channel.follow" },
+    ] });
+    await refreshTwitch({ ...twitchEnv, TWITCH_WEBHOOK_URL: callback }, { now: NOW, api: client });
+    expect(client.unsubscribe).toHaveBeenCalledExactlyOnceWith("old-version");
+    expect(client.subscribe).toHaveBeenCalledWith("channel.update", "2", "42");
+    expect(vi.mocked(client.unsubscribe).mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(client.subscribe).mock.invocationCallOrder[0]!);
   });
   it("protects account and permission endpoints and restricts webhook methods", async () => {
     const adminEnv = { ...twitchEnv, MANUAL_TRIGGER_TOKEN: "test-token" };

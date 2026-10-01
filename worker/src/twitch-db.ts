@@ -40,16 +40,17 @@ export async function syncTwitchAccounts(db: D1Database, api: TwitchApi, candida
     const claimedElsewhere = user && accounts.some(other => other.channel_id !== a.channel_id && other.user_id === user.id);
     const changedSource = candidate && candidate.login !== a.login && candidate.login !== a.source_login && candidate.login !== user?.login.toLowerCase();
     if (!user || claimedElsewhere || changedSource) {
-      await db.prepare("UPDATE twitch_accounts SET status=?2,checked_at=?3 WHERE channel_id=?1")
+      await db.prepare("UPDATE twitch_accounts SET status=?2,checked_at=?3 WHERE channel_id=?1 AND status<>'disabled'")
         .bind(a.channel_id, !user ? "missing" : "conflict", now).run();
       continue;
     }
     // Numeric identity survives login changes. A login resolving to a different
     // account must never inherit history or the original broadcaster's consent.
-    await db.prepare("UPDATE twitch_accounts SET user_id=?2,login=?3,status='verified',checked_at=?4,source_login=?5 WHERE channel_id=?1")
+    // Withdrawal may happen during Helix I/O, after the eligible list was read.
+    await db.prepare("UPDATE twitch_accounts SET user_id=?2,login=?3,status='verified',checked_at=?4,source_login=?5 WHERE channel_id=?1 AND status<>'disabled'")
       .bind(a.channel_id, user.id, user.login.toLowerCase(), now, candidate?.login ?? a.source_login).run();
     if (!a.history_granted_at && !a.history_revoked_at && consents.accounts.some(c => c.channelId === a.channel_id && c.login === a.login)) {
-      await db.prepare("UPDATE twitch_accounts SET history_granted_at=?2,history_evidence=?3 WHERE channel_id=?1 AND history_revoked_at IS NULL")
+      await db.prepare("UPDATE twitch_accounts SET history_granted_at=?2,history_evidence=?3 WHERE channel_id=?1 AND status='verified' AND history_revoked_at IS NULL AND history_granted_at IS NULL")
         .bind(a.channel_id, consents.confirmedAt, consents.basis).run();
     }
   }
@@ -69,22 +70,33 @@ export async function releaseTwitchLease(db: D1Database, key: string, owner: str
 }
 
 export async function startTwitchStream(db: D1Database, userId: string, streamId: string, start: string, observed: string): Promise<void> {
-  const account = await db.prepare("SELECT * FROM twitch_accounts WHERE user_id=?1 AND status='verified'").bind(userId).first<TwitchAccount>();
-  if (!account) return;
-  const allowed = !!account.history_granted_at;
   // An older online notification arriving after a restart is historical; it must
   // not replace the newer active session. Mark its end as an observed upper bound.
-  const newer = await db.prepare("SELECT MIN(started_at) AS started_at FROM twitch_streams WHERE user_id=?1 AND started_at>?2")
-    .bind(userId, start).first<{ started_at: string | null }>();
-  const offline = await db.prepare("SELECT MAX(value) AS ended_at FROM twitch_state WHERE key IN (?1,?2) AND value>=?3")
-    .bind(`offline:${userId}`, `offline:${userId}:${streamId}`, start).first<{ ended_at: string | null }>();
+  // Include retained lifecycle events, even outside the current inbox batch. A
+  // later session may not have a stream row yet; its started_at (not delivery
+  // timestamp) is still an authoritative upper bound for this session's metadata.
+  const boundary = await db.prepare(`SELECT MIN(at) AS ended_at FROM (
+    SELECT started_at AS at FROM twitch_streams WHERE user_id=?1 AND started_at>?3
+    UNION ALL SELECT strftime('%Y-%m-%dT%H:%M:%fZ',json_extract(payload,'$.started_at')) AS at
+      FROM twitch_inbox WHERE user_id=?1 AND type='stream.online' AND json_extract(payload,'$.id')<>?2
+        AND julianday(json_extract(payload,'$.started_at'))>julianday(?3)
+    UNION ALL SELECT sent_at AS at FROM twitch_inbox WHERE user_id=?1 AND type='stream.offline' AND sent_at>=?3
+      AND (json_extract(payload,'$.id') IS NULL OR json_extract(payload,'$.id')=?2)
+    UNION ALL SELECT value AS at FROM twitch_state WHERE key IN (?4,?5) AND value>=?3
+  )`).bind(userId, streamId, start, `offline:${userId}`, `offline:${userId}:${streamId}`)
+    .first<{ ended_at: string | null }>();
   await db.batch([
     db.prepare(`UPDATE twitch_streams SET ended_at=?2,thumbnail_url=NULL,viewer_count=NULL
-      WHERE user_id=?1 AND started_at<?2 AND ended_at IS NULL`).bind(userId, start),
+      WHERE user_id=?1 AND started_at<?2 AND ended_at IS NULL
+        AND EXISTS(SELECT 1 FROM twitch_accounts WHERE user_id=?1 AND status='verified')`).bind(userId, start),
+    db.prepare(`UPDATE twitch_streams SET ended_at=?2,thumbnail_url=NULL,viewer_count=NULL
+      WHERE stream_id=?1 AND ?2 IS NOT NULL AND (ended_at IS NULL OR ended_at>?2)`)
+      .bind(streamId, boundary?.ended_at ?? null),
     db.prepare(`INSERT INTO twitch_streams(stream_id,user_id,started_at,ended_at,observed_at,last_seen_at,expires_at,history_allowed)
-      VALUES(?1,?2,?3,?4,?5,?5,?6,?7) ON CONFLICT(stream_id) DO NOTHING`)
-      .bind(streamId, userId, start, newer?.started_at ?? offline?.ended_at ?? null, observed,
-        allowed ? null : new Date(Date.parse(observed) + DAY).toISOString(), allowed ? 1 : 0),
+      SELECT ?1,?2,?3,?4,?5,?5,CASE WHEN history_granted_at IS NULL THEN ?6 ELSE NULL END,history_granted_at IS NOT NULL
+      FROM twitch_accounts WHERE user_id=?2 AND status='verified'
+      ON CONFLICT(stream_id) DO NOTHING`)
+      .bind(streamId, userId, start, boundary?.ended_at ?? null, observed, new Date(Date.parse(observed) + DAY).toISOString()),
   ]);
 }
 
@@ -95,18 +107,18 @@ export async function updateTwitchMetadata(db: D1Database, streamId: string, val
   await db.batch([
     db.prepare(`INSERT OR IGNORE INTO twitch_stream_changes(stream_id,observed_at,title,category_id,category_name)
       SELECT stream_id,?2,?3,?4,?5 FROM twitch_streams
-      WHERE stream_id=?1 AND started_at<=?2 AND (ended_at IS NULL OR ended_at>=?2)
+      WHERE stream_id=?1 AND started_at<=?2 AND (ended_at IS NULL OR ended_at>?2)
         AND history_allowed=1 AND NOT EXISTS (
           SELECT 1 FROM twitch_stream_changes c WHERE c.stream_id=?1
             AND c.observed_at=(SELECT MAX(observed_at) FROM twitch_stream_changes WHERE stream_id=?1 AND observed_at<=?2)
             AND c.title=?3 AND c.category_id=?4 AND c.category_name=?5)`)
       .bind(streamId, at, value.title, value.categoryId, value.categoryName),
     db.prepare(`UPDATE twitch_streams SET title=?3,category_id=?4,category_name=?5,metadata_at=?2
-      WHERE stream_id=?1 AND started_at<=?2 AND (ended_at IS NULL OR ended_at>=?2)
+      WHERE stream_id=?1 AND started_at<=?2 AND (ended_at IS NULL OR ended_at>?2)
         AND (metadata_at IS NULL OR metadata_at<?2)`)
       .bind(streamId, at, value.title, value.categoryId, value.categoryName),
     db.prepare(`UPDATE twitch_streams SET initial_title=?3,initial_category_name=?4,initial_metadata_at=?2
-      WHERE stream_id=?1 AND started_at<=?2 AND (ended_at IS NULL OR ended_at>=?2)
+      WHERE stream_id=?1 AND started_at<=?2 AND (ended_at IS NULL OR ended_at>?2)
         AND (initial_metadata_at IS NULL OR initial_metadata_at>?2)`)
       .bind(streamId, at, value.title, value.categoryName),
     db.prepare(`INSERT OR REPLACE INTO twitch_state(key,value,expires_at)
@@ -123,7 +135,9 @@ export async function observeTwitchStream(db: D1Database, stream: TwitchStream, 
   // offline notification for this same stream, never an older restarted stream.
   await db.prepare(`UPDATE twitch_streams SET ended_at=NULL,last_seen_at=?2,thumbnail_url=?3,viewer_count=?4
     WHERE stream_id=?1 AND last_seen_at<=?2 AND (ended_at IS NULL OR ended_at<=?2)
-      AND NOT EXISTS(SELECT 1 FROM twitch_streams newer WHERE newer.user_id=twitch_streams.user_id AND newer.started_at>twitch_streams.started_at)`)
+      AND NOT EXISTS(SELECT 1 FROM twitch_streams newer WHERE newer.user_id=twitch_streams.user_id AND newer.started_at>twitch_streams.started_at)
+      AND NOT EXISTS(SELECT 1 FROM twitch_inbox i WHERE i.user_id=twitch_streams.user_id AND i.type='stream.online'
+        AND julianday(json_extract(i.payload,'$.started_at'))>julianday(twitch_streams.started_at))`)
     .bind(stream.id, at, thumbnailUrl(stream.thumbnail_url), stream.viewer_count).run();
   await updateTwitchMetadata(db, stream.id, { title: stream.title, categoryId: stream.game_id, categoryName: stream.game_name }, at);
 }
@@ -147,7 +161,7 @@ export async function endTwitchStream(db: D1Database, userId: string, at: string
 
 export async function updateTwitchChannel(db: D1Database, userId: string, value: TwitchChannel, at: string): Promise<void> {
   const row = await db.prepare(`SELECT stream_id FROM twitch_streams WHERE user_id=?1 AND started_at<=?2
-    AND (ended_at IS NULL OR ended_at>=?2) ORDER BY started_at DESC LIMIT 1`)
+    AND (ended_at IS NULL OR ended_at>?2) ORDER BY started_at DESC LIMIT 1`)
     .bind(userId, at).first<{ stream_id: string }>();
   if (row) await updateTwitchMetadata(db, row.stream_id, { title: value.title, categoryId: value.game_id, categoryName: value.game_name }, at);
 }
