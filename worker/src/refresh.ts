@@ -88,9 +88,22 @@ export async function publishCurrentSnapshot(
   env: Env, roster: Map<string, RosterEntry>, nowIso: string, heavyRefreshedAtIso: string,
   scope: ArchiveScope = "current-month",
 ): Promise<Snapshot | null> {
-  const owner = await acquireTwitchLease(env.DB, "publication-lock", new Date().toISOString(), 300);
+  let owner = await acquireTwitchLease(env.DB, "publication-lock", new Date().toISOString(), 300);
+  // Permission changes require a fresh publication, not the previous snapshot.
+  // Bound contention retries; the durable marker lets cron retry after a 503.
+  if (scope === "rewrite") {
+    for (const delay of [100, 200, 400, 800]) {
+      if (owner) break;
+      await new Promise(resolve => setTimeout(resolve, delay));
+      owner = await acquireTwitchLease(env.DB, "publication-lock", new Date().toISOString(), 300);
+    }
+    if (!owner) throw new Error("snapshot publication is busy");
+  }
   if (!owner) return readSnapshot(env.DATA_PUBLIC);
   try {
+    // Capture before reading stream rows. An older publisher must never acknowledge
+    // a permission change that arrived after its reads, even if it rewrites archives.
+    const pending = await env.DB.prepare("SELECT value FROM twitch_state WHERE key='consent-publication-pending'").first<{ value: string }>();
     const previous = await readSnapshot(env.DATA_PUBLIC);
     nowIso = previous && previous.generated_at > nowIso ? previous.generated_at : nowIso;
     heavyRefreshedAtIso = previous && previous.heavy_refreshed_at > heavyRefreshedAtIso ? previous.heavy_refreshed_at : heavyRefreshedAtIso;
@@ -99,7 +112,8 @@ export async function publishCurrentSnapshot(
       streams: await collectCurrentStreams(env.DB, nowMs), roster,
       milestones: await listSnapshotMilestones(env.DB, nowMs), nowIso, heavyRefreshedAtIso });
     await writeSnapshot(env.DATA_PUBLIC, snapshot);
-    await publishArchive(env.DB, env.DATA_PUBLIC, roster, nowIso, scope);
+    await publishArchive(env.DB, env.DATA_PUBLIC, roster, nowIso, pending ? "rewrite" : scope);
+    if (pending) await env.DB.prepare("DELETE FROM twitch_state WHERE key='consent-publication-pending' AND value=?1").bind(pending.value).run();
     return snapshot;
   } finally { await releaseTwitchLease(env.DB, "publication-lock", owner); }
 }

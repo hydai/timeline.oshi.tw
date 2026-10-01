@@ -110,6 +110,8 @@ npm run deploy
 
 已獲同意的 30 個候選帳號明列於 [`worker/seed/twitch-consents.json`](worker/seed/twitch-consents.json)，以 2026-10-01 操作者確認為依據；這不代表已完成 Twitch API 實際驗證。新增帳號不會自動繼承長期保存同意。管理者可用 `POST /twitch/history` 與 `X-Trigger-Token` 記錄 `{ "userId": "數字ID", "granted": true, "evidence": "同意依據" }`；`granted: false` 會停止追蹤、刪除該帳號的直播紀錄並重寫公開封存。既有 CDN／瀏覽器快取仍需等待失效；若要求立即撤下，另需清除 CDN 快取。重新授權不會把先前未授權資料轉成永久歷史。
 
+同意設定端點只有在更新後的快照與封存都完成發布後才會回傳成功。若發布鎖持續忙碌或 R2 寫入失敗，會回傳 `503`、`Retry-After: 5` 與 `{ "ok": false, "permissionSaved": true, "publicationPending": true }`：同意設定已儲存，但公開資料尚未確認更新。可重送相同請求；D1 也會保留待發布標記，由每五分鐘排程優先重試，不依賴 Twitch／YouTube API 成功。
+
 通知先驗證 HMAC 與時間，再寫入 D1 inbox 去重；背景處理失敗由每 5 分鐘 cron 重試並以 Get Streams 補漏。訂閱每小時對帳，heavy refresh 會提前對帳。原始事件僅保留 24 小時；未同意帳號只顯示限時直播狀態，不進歷史封存。未設定 Client ID / Secret 時不呼叫 Twitch API，YouTube 維持原流程。
 
 紀錄保存開台時間、首次**觀測到**的標題／分類與後續變更；歷史卡片顯示首次觀測值。下播通知沒有精確結束時間，故使用通知／輪詢觀測時間作為 `estimatedEnd`。未啟用前的歷史無法回補；漏掉通知且在兩次輪詢之間結束的短直播可能無法發現，來不及取得標題時保留空值，不編造開台標題。變更明細留在 D1，第一版不提供前端變更列表。

@@ -6,7 +6,7 @@ import { fetchVideoDetails, fetchChannelMeta, fetchUploadIds } from "./youtube";
 import { fetchRoster } from "./twvtuber";
 import { settleManualBackfill } from "./onboarding";
 import { handleTwitchWebhook, refreshTwitch, tryRefreshTwitch } from "./twitch";
-import { publishTwitchChanges } from "./twitch-publish";
+import { publishTwitchChanges, retryPendingTwitchPublication } from "./twitch-publish";
 import { boundedText } from "./twitch-api";
 import { setTwitchHistoryPermission, twitchAccounts } from "./twitch-db";
 import { z } from "zod";
@@ -42,6 +42,7 @@ export default {
     if (mode === "heavy") ctx.waitUntil(heavyRefresh(env, makeDeps(env)));
     else if (mode === "light") ctx.waitUntil((async () => {
       const now = new Date().toISOString();
+      await retryPendingTwitchPublication(env, now);
       await tryRefreshTwitch(env, { now });
       try { await lightRefresh(env, makeDeps(env)); }
       catch (error) {
@@ -84,8 +85,13 @@ export default {
         if (!await setTwitchHistoryPermission(env.DB, permission.userId, permission.granted, permission.evidence, now)) {
           return Response.json({ error: "verified account not found" }, { status: 404, headers });
         }
-        await publishTwitchChanges(env, now, true);
-        await env.DB.prepare("DELETE FROM twitch_state WHERE key='subscriptions-checked'").run();
+        try { await publishTwitchChanges(env, now, true); }
+        catch (error) {
+          console.error(JSON.stringify({ message: "Twitch permission publication pending", error: error instanceof Error ? error.message : String(error) }));
+          return Response.json({ ok: false, permissionSaved: true, publicationPending: true,
+            error: "Permission saved, but publication is incomplete; retry this request or wait for the next five-minute cron." },
+          { status: 503, headers: { ...headers, "Retry-After": "5" } });
+        }
         return Response.json({ ok: true }, { headers });
       }
       return new Response("method not allowed", { status: 405 });

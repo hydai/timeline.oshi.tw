@@ -174,7 +174,12 @@ export async function setTwitchHistoryPermission(db: D1Database, userId: string,
     history_granted_at=?2,history_evidence=?3,history_revoked_at=?4,
     status=CASE WHEN ?2 IS NULL THEN 'disabled' ELSE 'verified' END
     WHERE user_id=?1 AND status IN ('verified','disabled')`)
-    .bind(userId, granted ? now : null, evidence, granted ? null : now)];
+    .bind(userId, granted ? now : null, evidence, granted ? null : now),
+    // Distinct from archive-rewrite: this marker covers BOTH snapshot and archive,
+    // and unique values keep concurrent changes from acknowledging one another.
+    db.prepare("INSERT OR REPLACE INTO twitch_state(key,value,expires_at) VALUES('consent-publication-pending',?1,'9999-12-31T00:00:00.000Z')").bind(crypto.randomUUID()),
+    db.prepare("DELETE FROM twitch_state WHERE key='subscriptions-checked'"),
+  ];
   if (!granted) {
     statements.push(
       db.prepare("DELETE FROM twitch_streams WHERE user_id=?1").bind(userId),
