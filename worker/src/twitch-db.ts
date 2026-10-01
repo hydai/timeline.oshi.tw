@@ -27,7 +27,12 @@ export async function syncTwitchAccounts(db: D1Database, api: TwitchApi, candida
       .bind(c.channelId, c.login, c.source, c.conflict ? "conflict" : "pending").run();
   }
   const accounts = await twitchAccounts(db);
-  const eligible = accounts.filter(a => a.status !== "disabled" && !candidates.find(c => c.channelId === a.channel_id)?.conflict);
+  const eligible = accounts.filter(a => {
+    const candidate = candidates.find(c => c.channelId === a.channel_id);
+    // A missing source may preserve an established identity, never resolve an
+    // unverified or conflicting one merely because the pinned user still exists.
+    return a.status !== "disabled" && !candidate?.conflict && (candidate != null || a.status === "verified");
+  });
   // Fetch both batches completely before updating verification state. An upstream
   // failure is never interpreted as deletion of an account.
   const users = [

@@ -86,6 +86,26 @@ describe("Twitch account discovery", () => {
     await syncTwitchAccounts(env.DB, client, candidates, NOW);
     expect((await twitchAccounts(env.DB))[0]).toMatchObject({ status: "disabled", history_granted_at: null });
   });
+  it.each(["pending", "missing", "conflict"])("preserves %s identity state until a non-conflicting source mapping returns", async (status) => {
+    await account();
+    await env.DB.prepare("UPDATE twitch_accounts SET status=?1,source_login='example'").bind(status).run();
+    const client = api({ usersById: vi.fn(async () => [{ id: "42", login: "example" }]) });
+    await syncTwitchAccounts(env.DB, client, [], NOW);
+    expect((await twitchAccounts(env.DB))[0]?.status).toBe(status);
+    expect(client.usersById).toHaveBeenCalledExactlyOnceWith([]);
+    await refreshTwitch({ ...twitchEnv, TWITCH_WEBHOOK_URL: "https://worker.example/twitch/eventsub" }, { now: NOW, api: client });
+    expect(client.streams).toHaveBeenCalledExactlyOnceWith([]);
+    expect(client.subscribe).not.toHaveBeenCalled();
+    await syncTwitchAccounts(env.DB, client, [{ channelId: "UCtest", login: "example", source: "prism", conflict: false }], NOW);
+    expect((await twitchAccounts(env.DB))[0]?.status).toBe("verified");
+  });
+  it("keeps verifying a pinned verified account by numeric ID when its source mapping is absent", async () => {
+    await account();
+    const client = api({ usersById: vi.fn(async () => [{ id: "42", login: "renamed" }]) });
+    await syncTwitchAccounts(env.DB, client, [], NOW);
+    expect(client.usersById).toHaveBeenCalledExactlyOnceWith(["42"]);
+    expect((await twitchAccounts(env.DB))[0]).toMatchObject({ status: "verified", user_id: "42", login: "renamed" });
+  });
   it.each(["verified", "missing", "conflict"])("preserves withdrawal while a %s discovery result is in flight", async (outcome) => {
     await account();
     const client = api({ usersById: async () => {

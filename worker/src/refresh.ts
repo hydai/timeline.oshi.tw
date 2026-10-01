@@ -89,9 +89,10 @@ export async function publishCurrentSnapshot(
   scope: ArchiveScope = "current-month",
 ): Promise<Snapshot | null> {
   let owner = await acquireTwitchLease(env.DB, "publication-lock", new Date().toISOString(), 300);
-  // Permission changes require a fresh publication, not the previous snapshot.
-  // Bound contention retries; the durable marker lets cron retry after a 503.
-  if (scope === "rewrite") {
+  // Permission changes and full refreshes require a fresh publication, not the previous snapshot.
+  // Bound contention retries. Permission changes also retain a durable marker
+  // so cron can retry their publication after a 503.
+  if (scope !== "current-month") {
     for (const delay of [100, 200, 400, 800]) {
       if (owner) break;
       await new Promise(resolve => setTimeout(resolve, delay));

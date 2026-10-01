@@ -156,3 +156,27 @@ describe("Twitch consent publication", () => {
     await expectUnpublished();
   });
 });
+
+describe("Publication contention by scope", () => {
+  it("retries full publication and publishes fresh roster enrichment after the lease is released", async () => {
+    const owner = await acquireTwitchLease(env.DB, "publication-lock", new Date().toISOString(), 300);
+    const roster = new Map([["UCtest", { youtubeId: "UCtest", twvtuberId: "t", name: "Updated",
+      group: "Updated group", nationality: "TW", youtubeSubs: 100, avatar: null }]]);
+    const publishing = publishCurrentSnapshot(env, roster, NOW, NOW, "full");
+    try { await new Promise(resolve => setTimeout(resolve, 50)); }
+    finally { await releaseTwitchLease(env.DB, "publication-lock", owner!); }
+    expect((await publishing)?.channels.UCtest?.group).toBe("Updated group");
+    expect((await readSnapshot(env.DATA_PUBLIC))?.channels.UCtest?.group).toBe("Updated group");
+  });
+
+  it("rejects full publication when the lease stays busy instead of reporting the old snapshot as success", async () => {
+    await acquireTwitchLease(env.DB, "publication-lock", new Date().toISOString(), 300);
+    await expect(publishCurrentSnapshot(env, new Map(), NOW, NOW, "full")).rejects.toThrow("snapshot publication is busy");
+  });
+
+  it("still allows a light publication to reuse the previous snapshot during contention", async () => {
+    await acquireTwitchLease(env.DB, "publication-lock", new Date().toISOString(), 300);
+    const previous = await readSnapshot(env.DATA_PUBLIC);
+    expect(await publishCurrentSnapshot(env, new Map(), NOW, NOW)).toEqual(previous);
+  });
+});
