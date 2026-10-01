@@ -82,10 +82,10 @@ async function listSnapshotMilestones(db: D1Database, nowMs: number): Promise<Mi
   return listMilestonesBetween(db, start, end);
 }
 
-/** All publishers acquire the same lease before reading D1. A delayed YouTube
- * refresh must not overwrite a webhook's newer Twitch snapshot with older rows. */
+/** All publishers acquire the same lease before reading D1. A null roster reuses
+ * channel enrichment from the latest snapshot read under that same lease. */
 export async function publishCurrentSnapshot(
-  env: Env, roster: Map<string, RosterEntry>, nowIso: string, heavyRefreshedAtIso: string,
+  env: Env, roster: Map<string, RosterEntry> | null, nowIso: string, heavyRefreshedAtIso: string | null,
   scope: ArchiveScope = "current-month",
 ): Promise<Snapshot | null> {
   let owner = await acquireTwitchLease(env.DB, "publication-lock", new Date().toISOString(), 300);
@@ -106,6 +106,16 @@ export async function publishCurrentSnapshot(
     // a permission change that arrived after its reads, even if it rewrites archives.
     const pending = await env.DB.prepare("SELECT value FROM twitch_state WHERE key='consent-publication-pending'").first<{ value: string }>();
     const previous = await readSnapshot(env.DATA_PUBLIC);
+    if (roster === null) {
+      if (!previous && scope === "current-month") return null; // bootstrap is heavy, except forced consent publication
+      roster = new Map();
+      for (const [cid, c] of Object.entries(previous?.channels ?? {})) {
+        if (c.twvtuber_id == null) continue;
+        roster.set(cid, { youtubeId: cid, name: c.name, group: c.group,
+          nationality: c.nationality, youtubeSubs: c.youtube_subs, avatar: c.avatar, twvtuberId: c.twvtuber_id });
+      }
+    }
+    heavyRefreshedAtIso ??= previous?.heavy_refreshed_at ?? nowIso;
     nowIso = previous && previous.generated_at > nowIso ? previous.generated_at : nowIso;
     heavyRefreshedAtIso = previous && previous.heavy_refreshed_at > heavyRefreshedAtIso ? previous.heavy_refreshed_at : heavyRefreshedAtIso;
     const nowMs = Date.parse(nowIso);
@@ -234,21 +244,9 @@ export async function lightRefresh(env: Env, deps: RefreshDeps): Promise<Snapsho
     const details = await deps.fetchVideoDetails(requestedIds);
     await reconcileFetchedStreams(env.DB, requestedIds, details, trackedIds, nowIso);
   }
-  // Reconstruct roster/heavy-time from the last heavy snapshot.
-  const roster: Map<string, RosterEntry> = new Map();
-  for (const [cid, c] of Object.entries(last.channels)) {
-    if (c.twvtuber_id == null) continue; // no twvtuber match — leave unmapped, exactly like heavyRefresh
-    roster.set(cid, {
-      youtubeId: cid,
-      name: c.name,
-      group: c.group,
-      nationality: c.nationality,
-      youtubeSubs: c.youtube_subs,
-      avatar: c.avatar,
-      twvtuberId: c.twvtuber_id,
-    });
-  }
-  return publishCurrentSnapshot(env, roster, nowIso, last.heavy_refreshed_at);
+  // A heavy refresh may finish during the feed/API calls above. Read its latest
+  // enrichment only after acquiring publication ownership.
+  return publishCurrentSnapshot(env, null, nowIso, null);
 }
 
 export { collectCurrentStreams, readSnapshot, DAY };

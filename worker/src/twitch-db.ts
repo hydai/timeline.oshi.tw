@@ -108,15 +108,14 @@ export async function startTwitchStream(db: D1Database, userId: string, streamId
 interface Metadata { title: string; categoryId: string; categoryName: string }
 export async function updateTwitchMetadata(db: D1Database, streamId: string, value: Metadata, at: string): Promise<void> {
   // Late events can fill the historical log and earliest observation, but cannot
-  // overwrite newer current metadata. Polling an unchanged title adds no entry.
+  // overwrite newer current metadata. Keep every distinct observation timestamp:
+  // an equal value may become a successor transition when an earlier event arrives
+  // late. The primary key still deduplicates replay of the same observation.
   await db.batch([
     db.prepare(`INSERT OR IGNORE INTO twitch_stream_changes(stream_id,observed_at,title,category_id,category_name)
       SELECT stream_id,?2,?3,?4,?5 FROM twitch_streams
       WHERE stream_id=?1 AND started_at<=?2 AND (ended_at IS NULL OR ended_at>?2)
-        AND history_allowed=1 AND NOT EXISTS (
-          SELECT 1 FROM twitch_stream_changes c WHERE c.stream_id=?1
-            AND c.observed_at=(SELECT MAX(observed_at) FROM twitch_stream_changes WHERE stream_id=?1 AND observed_at<=?2)
-            AND c.title=?3 AND c.category_id=?4 AND c.category_name=?5)`)
+        AND history_allowed=1`)
       .bind(streamId, at, value.title, value.categoryId, value.categoryName),
     db.prepare(`UPDATE twitch_streams SET title=?3,category_id=?4,category_name=?5,metadata_at=?2
       WHERE stream_id=?1 AND started_at<=?2 AND (ended_at IS NULL OR ended_at>?2)

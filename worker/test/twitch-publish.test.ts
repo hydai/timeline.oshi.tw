@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createExecutionContext, createScheduledController, env, waitOnExecutionContext } from "cloudflare:test";
-import { upsertChannelId } from "../src/db";
+import { upsertChannelId, upsertStream } from "../src/db";
 import worker from "../src/index";
-import { publishCurrentSnapshot } from "../src/refresh";
+import { lightRefresh, publishCurrentSnapshot } from "../src/refresh";
 import { archiveMonthKey, ARCHIVE_INDEX_KEY, readArchiveIndex, readSnapshot, SNAPSHOT_KEY } from "../src/r2";
 import { acquireTwitchLease, endTwitchStream, observeTwitchStream, releaseTwitchLease, setTwitchHistoryPermission } from "../src/twitch-db";
 import { publishTwitchChanges } from "../src/twitch-publish";
@@ -158,6 +158,38 @@ describe("Twitch consent publication", () => {
 });
 
 describe("Publication contention by scope", () => {
+  const freshRoster = () => new Map([["UCtest", { youtubeId: "UCtest", twvtuberId: "t", name: "Updated",
+    group: "Updated group", nationality: "TW", youtubeSubs: 100, avatar: null }]]);
+
+  it("reconstructs permission-publication roster only after the preceding heavy publisher releases its lease", async () => {
+    await upsertStream(env.DB, { videoId: "yt", channelId: "UCtest", status: "ended", title: "YouTube", thumbnailUrl: null,
+      scheduledStart: null, actualStart: "2026-09-01T08:00:00.000Z", actualEnd: "2026-09-01T09:00:00.000Z", concurrentViewers: null }, NOW);
+    const paused = signal(), resume = signal();
+    const put = env.DATA_PUBLIC.put.bind(env.DATA_PUBLIC);
+    vi.spyOn(env.DATA_PUBLIC, "put").mockImplementationOnce(async (...args) => {
+      paused.resolve(); await resume.promise; return put(...args);
+    });
+    const heavyPublisher = publishCurrentSnapshot(env, freshRoster(), NOW, NOW, "full");
+    await paused.promise;
+    const response = revoke();
+    try {
+      await vi.waitFor(async () => expect(await pending()).not.toBeNull());
+      await new Promise(resolve => setTimeout(resolve, 50));
+    } finally { resume.resolve(); await heavyPublisher; }
+    expect((await response).status).toBe(200);
+    expect((await readSnapshot(env.DATA_PUBLIC))?.channels.UCtest?.group).toBe("Updated group");
+    expect(await (await env.DATA_PUBLIC.get(archiveMonthKey("2026-09")))!.json()).toMatchObject({ channels: { UCtest: { group: "Updated group" } } });
+  });
+
+  it("uses the latest roster if heavy publication completes while a light refresh is fetching feeds", async () => {
+    const snapshot = await lightRefresh(env, {
+      fetchRecentVideoIds: async () => { await publishCurrentSnapshot(env, freshRoster(), NOW, NOW, "full"); return []; },
+      fetchUploadIds: async () => ({ ids: [], truncated: false }), fetchVideoDetails: async () => [],
+      fetchChannelMeta: async () => [], fetchRoster: async () => [], now: () => NOW,
+    });
+    expect(snapshot?.channels.UCtest?.group).toBe("Updated group");
+  });
+
   it("retries full publication and publishes fresh roster enrichment after the lease is released", async () => {
     const owner = await acquireTwitchLease(env.DB, "publication-lock", new Date().toISOString(), 300);
     const roster = new Map([["UCtest", { youtubeId: "UCtest", twvtuberId: "t", name: "Updated",

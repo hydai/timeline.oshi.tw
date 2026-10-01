@@ -254,6 +254,24 @@ describe("EventSub and reconciliation", () => {
     await updateTwitchMetadata(env.DB, "123", { title: "earlier", categoryId: "2", categoryName: "Music" }, START);
     expect((await listStreamsByStatus(env.DB, "live", NOW))[0]).toMatchObject({ initialTitle: "earlier", title: "開台雜談" });
   });
+  it.each(["title", "category"])("preserves successor %s transitions when multiple intermediate observations arrive late", async (field) => {
+    await account();
+    await startTwitchStream(env.DB, "42", "123", START, START);
+    for (const [minute, label] of [[1, "A"], [3, "A"], [5, "A"], [2, "B"], [4, "C"]] as const) {
+      await updateTwitchMetadata(env.DB, "123", { title: field === "title" ? label : "same title",
+        categoryId: field === "category" ? label : "1", categoryName: field === "category" ? label : "Music" },
+      `2026-10-01T09:0${minute}:00.000Z`);
+    }
+    const rows = (await env.DB.prepare("SELECT title,category_name FROM twitch_stream_changes ORDER BY observed_at").all<{ title: string; category_name: string }>()).results;
+    expect(rows.map(row => field === "title" ? row.title : row.category_name)).toEqual(["A", "B", "A", "C", "A"]);
+    expect(await env.DB.prepare("SELECT metadata_at FROM twitch_streams WHERE stream_id='123'").first()).toEqual({ metadata_at: "2026-10-01T09:05:00.000Z" });
+  });
+  it("deduplicates replay of the same metadata observation", async () => {
+    await account();
+    await startTwitchStream(env.DB, "42", "123", START, START);
+    for (let i = 0; i < 2; i++) await updateTwitchMetadata(env.DB, "123", { title: "A", categoryId: "1", categoryName: "Music" }, START);
+    expect((await env.DB.prepare("SELECT * FROM twitch_stream_changes").all()).results).toHaveLength(1);
+  });
   it.each(["offline", "next-online", "beyond-batch", "existing-row"])("bounds metadata replay at the %s session boundary", async (boundary) => {
     await account();
     if (boundary === "existing-row") await startTwitchStream(env.DB, "42", "123", START, START);
