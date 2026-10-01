@@ -27,11 +27,18 @@ export function toSnapshotChannel(row: ChannelRow, r: RosterEntry | undefined): 
 
 export function toSnapshotStream(s: StreamRecord): SnapshotStream {
   const base: SnapshotStream = {
+    ...(s.platform === "twitch" ? {
+      platform: s.platform, platformStreamId: s.platformStreamId,
+      categoryName: s.categoryName, initialTitle: s.initialTitle,
+      initialCategoryName: s.initialCategoryName, channelUrl: s.channelUrl,
+      ...(s.estimatedEnd ? { estimatedEnd: s.estimatedEnd } : {}),
+      ...(s.expiresAt ? { expiresAt: s.expiresAt } : {}),
+    } : {}),
     videoId: s.videoId,
     channelId: s.channelId,
     title: s.title,
     thumbnail: s.thumbnailUrl,
-    url: `https://www.youtube.com/watch?v=${s.videoId}`,
+    url: s.platform === "twitch" ? s.status === "live" ? s.channelUrl ?? null : null : `https://www.youtube.com/watch?v=${s.videoId}`,
   };
   if (s.actualStart != null) base.actualStart = s.actualStart;
   if (s.scheduledStart != null) base.scheduledStart = s.scheduledStart;
@@ -65,8 +72,8 @@ export function buildSnapshot(input: BuildSnapshotInput): Snapshot {
     .map(toSnapshotStream);
 
   const recent = tracked
-    .filter((s) => s.status === "ended" && s.actualEnd != null && now - new Date(s.actualEnd).getTime() <= RECENT_WINDOW_MS)
-    .sort((a, b) => (b.actualEnd ?? "").localeCompare(a.actualEnd ?? ""))
+    .filter((s) => s.status === "ended" && (s.actualEnd ?? s.estimatedEnd) != null && now - new Date((s.actualEnd ?? s.estimatedEnd)!).getTime() <= RECENT_WINDOW_MS)
+    .sort((a, b) => (b.actualEnd ?? b.estimatedEnd ?? "").localeCompare(a.actualEnd ?? a.estimatedEnd ?? ""))
     .map(toSnapshotStream);
 
   return {

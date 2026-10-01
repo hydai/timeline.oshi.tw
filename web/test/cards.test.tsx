@@ -25,6 +25,24 @@ describe("StreamCard", () => {
       stream={{ videoId: "v", channelId: "c", title: "歌枠", thumbnail: null, url: "u" }} />);
     expect(screen.getByText("即將開始")).toBeInTheDocument();
   });
+  it("shows Twitch history without a replay link and labels its estimated end", () => {
+    const { container } = render(<StreamCard kind="recent" nowMs={now} channel={channel}
+      stream={{ platform: "twitch", videoId: "twitch:42", channelId: "c", title: "開台時的標題", categoryName: "Just Chatting", thumbnail: null, url: null, channelUrl: "https://www.twitch.tv/example", actualStart: "2026-07-21T10:00:00Z", estimatedEnd: "2026-07-21T11:00:00Z" }} />);
+    expect(screen.getByText("直播紀錄 · 無重播")).toBeInTheDocument();
+    expect(screen.getByText("Just Chatting")).toBeInTheDocument();
+    expect(screen.getByText("約 1 小時前")).toBeInTheDocument();
+    expect(screen.getByText(/開台 2026-07-21 18:00/)).toBeInTheDocument();
+    expect(screen.getAllByRole("link")).toHaveLength(1);
+    expect(screen.getByRole("link", { name: "前往 Twitch 頻道" })).toHaveAttribute("href", "https://www.twitch.tv/example");
+    expect(container.querySelector("article")).not.toBeNull();
+    expect(container.querySelector("a a")).toBeNull();
+  });
+  it("links a live Twitch session directly to the channel", () => {
+    render(<StreamCard kind="live" nowMs={now} channel={channel}
+      stream={{ platform: "twitch", videoId: "twitch:42", channelId: "c", title: "Twitch live", thumbnail: null, url: "https://www.twitch.tv/example" }} />);
+    expect(screen.getByRole("link")).toHaveAttribute("href", "https://www.twitch.tv/example");
+    expect(screen.queryByText("直播紀錄 · 無重播")).not.toBeInTheDocument();
+  });
 });
 
 describe("MilestoneCard", () => {

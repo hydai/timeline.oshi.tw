@@ -287,6 +287,12 @@ describe("pastMilestoneIndex", () => {
 });
 
 describe("itemArchiveMonth", () => {
+  it("uses the estimated Twitch end in Taipei, including a month boundary", () => {
+    expect(itemArchiveMonth({ kind: "recent", sortAt: 0, channel,
+      stream: { videoId: "twitch:42", channelId: "c", platform: "twitch", title: "t", thumbnail: null, url: null,
+        actualStart: "2026-09-30T15:00:00Z", estimatedEnd: "2026-09-30T16:01:00Z" },
+    })).toBe("2026-10");
+  });
   it("files a finished stream by the Taipei month it ended in, as the worker does", () => {
     // 20:00Z on the last of April is 04:00 on 1 May in Taipei, and the rail heads it 5/1.
     expect(itemArchiveMonth({

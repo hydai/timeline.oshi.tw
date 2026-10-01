@@ -1,6 +1,8 @@
 import type { Milestone, RosterEntry } from "./types";
+import { twitchLogin } from "./twitch-accounts";
 
 export interface TwVtuber {
+  twitch_id?: string | null;
   id: string;
   name: string;
   youtube_id: string | null;
@@ -26,6 +28,7 @@ export function indexRosterByYoutubeId(vtubers: TwVtuber[]): Map<string, RosterE
       youtubeSubs: v.youtube_subs,
       avatar: v.img_url,
       twvtuberId: v.id,
+      ...(twitchLogin(v.twitch_id) ? { twitchLogin: twitchLogin(v.twitch_id)! } : {}),
     });
   }
   return map;

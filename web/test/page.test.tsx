@@ -7,6 +7,9 @@ import type { Snapshot } from "@/lib/types";
 import { taipeiDayKey } from "@/lib/time";
 import fixture from "./fixtures/snapshot.json";
 import { channelProfiles } from "@/lib/channel-aliases";
+import twitchSnapshot from "../public/twitch-sample/snapshot.json";
+import twitchIndex from "../public/twitch-sample/archive/index.json";
+import twitchMonth from "../public/twitch-sample/archive/2026-10.json";
 
 beforeEach(() => localStorage.clear());
 afterEach(() => vi.restoreAllMocks());
@@ -125,6 +128,19 @@ const typeFilterFixture = {
 } satisfies Snapshot;
 
 describe("Home page", () => {
+  it("shows Twitch history in All and completed-month views under the same VTuber", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => Response.json(
+      url.endsWith("archive/index.json") ? twitchIndex : url.endsWith("2026-10.json") ? twitchMonth : twitchSnapshot,
+    )));
+    render(<Home />);
+    await screen.findByText("直播紀錄 · 無重播");
+    expect(screen.getByText("【示範資料】晚安雜談，今天一起聊聊")).toBeInTheDocument();
+    await pickVTuber("示範 VTuber");
+    await userEvent.click(screen.getByRole("button", { name: "已完成直播" }));
+    expect(await screen.findByText("【示範資料】一起蓋一座海邊小屋")).toBeInTheDocument();
+    expect(screen.queryByText("【示範資料】晚安雜談，今天一起聊聊")).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "前往 Twitch 頻道" })).toHaveAttribute("href", "https://www.twitch.tv/");
+  });
   it("shows loading, then loads the snapshot and renders the river + controls", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(fixture), { status: 200 })));
     render(<Home />);

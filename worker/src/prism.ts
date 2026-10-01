@@ -1,5 +1,6 @@
 import { parseYoutubeLink } from "./seed";
 import type { RosterEntry } from "./types";
+import { twitchLogin } from "./twitch-accounts";
 
 /**
  * Company names for tracked channels, taken from prism's VOD export.
@@ -30,11 +31,12 @@ interface PrismManifest { sha256?: unknown }
 interface RawPrismStreamer {
   youtubeChannelId?: unknown;
   group?: unknown;
-  socialLinks?: { youtube?: unknown };
+  socialLinks?: { youtube?: unknown; twitch?: unknown };
 }
 interface PrismSnapshot { streamers?: unknown }
 
 export interface PrismStreamer {
+  twitchLogin?: string;
   youtubeChannelId: string;
   handle: string | null;
   /** Normalized source value. `個人勢` remains explicit here for onboarding policy. */
@@ -126,7 +128,8 @@ export async function readPrismStreamers(bucket: R2Bucket): Promise<PrismStreame
     if (!name) continue;
     const youtube = streamer.socialLinks?.youtube;
     const handle = typeof youtube === "string" ? parseYoutubeLink(youtube).handle ?? null : null;
-    out.push({ youtubeChannelId, handle, group: name });
+    const twitch = twitchLogin(streamer.socialLinks?.twitch);
+    out.push({ youtubeChannelId, handle, group: name, ...(twitch ? { twitchLogin: twitch } : {}) });
   }
 
   return out;

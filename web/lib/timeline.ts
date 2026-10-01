@@ -6,11 +6,11 @@ function ms(iso: string | undefined): number {
   return Number.isNaN(t) ? 0 : t;
 }
 
-export function buildTimeline(snap: Snapshot): TimelineItem[] {
+export function buildTimeline(snap: Snapshot, nowMs = Date.now()): TimelineItem[] {
   const ch = (id: string): SnapshotChannel | undefined => snap.channels[id];
 
   const live: TimelineItem[] = snap.live
-    .filter((s) => ch(s.channelId))
+    .filter((s) => ch(s.channelId) && (!s.expiresAt || ms(s.expiresAt) > nowMs))
     .map((s) => ({ kind: "live" as const, sortAt: ms(s.actualStart), stream: s, channel: ch(s.channelId)! }))
     .sort((a, b) => (b.stream.concurrentViewers ?? 0) - (a.stream.concurrentViewers ?? 0));
 
@@ -22,7 +22,7 @@ export function buildTimeline(snap: Snapshot): TimelineItem[] {
   const past: TimelineItem[] = [
     ...snap.recent
       .filter((s) => ch(s.channelId))
-      .map((s) => ({ kind: "recent" as const, sortAt: ms(s.actualEnd), stream: s, channel: ch(s.channelId)! })),
+      .map((s) => ({ kind: "recent" as const, sortAt: ms(s.actualEnd ?? s.estimatedEnd), stream: s, channel: ch(s.channelId)! })),
     ...snap.milestones
       .filter((m) => ch(m.channelId))
       .map((m) => ({ kind: "milestone" as const, sortAt: ms(m.date), milestone: m, channel: ch(m.channelId)! })),
@@ -39,7 +39,7 @@ export function buildArchiveTimeline(months: ArchiveMonth[]): TimelineItem[] {
         .filter((stream) => ch(stream.channelId))
         .map((stream) => ({
           kind: "recent" as const,
-          sortAt: ms(stream.actualEnd),
+          sortAt: ms(stream.actualEnd ?? stream.estimatedEnd),
           stream,
           channel: ch(stream.channelId)!,
         })),

@@ -67,6 +67,16 @@ export async function getStaleChannels(db: D1Database, olderThanIso: string): Pr
 
 function rowToStream(r: Record<string, unknown>): StreamRecord {
   return {
+    ...(r.platform === "twitch" ? {
+      platform: "twitch" as const,
+      platformStreamId: r.platform_stream_id as string,
+      categoryName: r.category_name as string,
+      ...(typeof r.initial_title === "string" ? { initialTitle: r.initial_title } : {}),
+      ...(typeof r.initial_category_name === "string" ? { initialCategoryName: r.initial_category_name } : {}),
+      channelUrl: `https://www.twitch.tv/${r.login as string}`,
+      ...(typeof r.actual_end === "string" ? { estimatedEnd: r.actual_end } : {}),
+      ...(typeof r.expires_at === "string" ? { expiresAt: r.expires_at } : {}),
+    } : {}),
     videoId: r.video_id as string,
     channelId: r.channel_id as string,
     status: r.status as StreamStatus,
@@ -74,7 +84,7 @@ function rowToStream(r: Record<string, unknown>): StreamRecord {
     thumbnailUrl: (r.thumbnail_url as string | null) ?? null,
     scheduledStart: (r.scheduled_start as string | null) ?? null,
     actualStart: (r.actual_start as string | null) ?? null,
-    actualEnd: (r.actual_end as string | null) ?? null,
+    actualEnd: r.platform === "twitch" ? null : (r.actual_end as string | null) ?? null,
     concurrentViewers: (r.concurrent_viewers as number | null) ?? null,
   };
 }
@@ -168,17 +178,18 @@ export async function unseenVideoIds(db: D1Database, ids: string[]): Promise<str
   return ids.filter((id) => !covered.has(id));
 }
 
-export async function listStreamsByStatus(db: D1Database, status: StreamStatus): Promise<StreamRecord[]> {
+export async function listStreamsByStatus(db: D1Database, status: StreamStatus, now = new Date().toISOString()): Promise<StreamRecord[]> {
   const { results } = await db
-    .prepare(`SELECT * FROM streams WHERE status = ?1 AND availability = 'available'`)
-    .bind(status)
+    .prepare(`SELECT * FROM timeline_streams WHERE status = ?1 AND availability = 'available'
+      AND (expires_at IS NULL OR expires_at > ?2)`)
+    .bind(status, now)
     .all<Record<string, unknown>>();
   return results.map(rowToStream);
 }
 
 export async function listEndedStreamsSince(db: D1Database, cutoffIso: string): Promise<StreamRecord[]> {
   const { results } = await db
-    .prepare(`SELECT * FROM streams
+    .prepare(`SELECT * FROM timeline_streams
       WHERE status = 'ended' AND availability = 'available' AND actual_end >= ?1
       ORDER BY actual_end DESC, video_id`)
     .bind(cutoffIso)
@@ -258,7 +269,7 @@ export async function listEndedStreamsByMonth(
 ): Promise<StreamRecord[]> {
   const bounds = monthBounds(month);
   const { results } = await db
-    .prepare(`SELECT * FROM streams
+    .prepare(`SELECT * FROM timeline_streams
       WHERE status = 'ended' AND availability = 'available'
         AND actual_end >= ?1 AND actual_end < ?2 AND actual_end <= ?3
       ORDER BY actual_end DESC, video_id`)
@@ -296,7 +307,7 @@ export async function getArchiveMonthSummary(
   const { results } = await db
     .prepare(`WITH archive_rows AS (
       SELECT channel_id, COUNT(*) AS streams, 0 AS milestones
-      FROM streams
+      FROM timeline_streams
       WHERE status = 'ended' AND availability = 'available'
         AND actual_end >= ?1 AND actual_end < ?2 AND actual_end <= ?3
       GROUP BY channel_id
@@ -341,7 +352,7 @@ export async function listArchiveMonthSummaries(
   const { results } = await db
     .prepare(`WITH archive_rows AS (
       SELECT ${TAIPEI_MONTH_SQL} AS month, channel_id, COUNT(*) AS streams, 0 AS milestones
-      FROM streams
+      FROM timeline_streams
       WHERE status = 'ended' AND availability = 'available'
         AND actual_end IS NOT NULL AND actual_end <= ?1
       GROUP BY ${TAIPEI_MONTH_SQL}, channel_id

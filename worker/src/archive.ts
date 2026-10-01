@@ -16,7 +16,7 @@ const FACETS = "channel";
  * "full" recounts every month from D1. "current-month" trusts the published index for
  * everything except the month still filling up.
  */
-export type ArchiveScope = "full" | "current-month";
+export type ArchiveScope = "full" | "current-month" | "rewrite";
 
 function countsMatch(left: ArchiveMonthSummary | undefined, right: ArchiveMonthSummary): boolean {
   return left?.streams === right.streams && left.milestones === right.milestones;
@@ -39,6 +39,8 @@ export async function publishArchive(
   nowIso: string,
   scope: ArchiveScope = "full",
 ): Promise<ArchiveIndex> {
+  const dirty = await db.prepare("SELECT value FROM twitch_state WHERE key='archive-rewrite'").first<{ value: string }>();
+  if (dirty) scope = "rewrite";
   const previous = await readArchiveIndex(bucket);
   const currentMonth = taipeiMonth(nowIso);
   // Moving a month boundary shuffles streams between files without necessarily changing
@@ -52,13 +54,20 @@ export async function publishArchive(
   // most of what this costs, and the light pass runs it every five minutes. The cheap
   // scope skips it, at the price of not seeing a settled month change behind it — a
   // video going private drops a row from an old month — which the next full pass fixes.
-  const months = scope === "full" || previous == null || reindexed
+  const months = scope !== "current-month" || previous == null || reindexed
     ? await listArchiveMonthSummaries(db, nowIso)
     : withCurrentMonth(previous.months, await getArchiveMonthSummary(db, currentMonth, nowIso));
   const previousByMonth = new Map((previous?.months ?? []).map((summary) => [summary.month, summary]));
   const changed = months.filter((summary) =>
-    regrouped || summary.month === currentMonth || !countsMatch(previousByMonth.get(summary.month), summary),
+    scope === "rewrite" || regrouped || summary.month === currentMonth || !countsMatch(previousByMonth.get(summary.month), summary),
   );
+  // Revocation can remove a month's final event. Overwrite that public object too;
+  // removing only the index entry would leave its old URL exposing retained data.
+  if (scope === "rewrite") {
+    for (const old of previous?.months ?? []) {
+      if (!months.some(month => month.month === old.month)) changed.push({ month: old.month, streams: 0, milestones: 0 });
+    }
+  }
 
   if (changed.length > 0) {
     const channels = await listChannels(db);
@@ -96,5 +105,6 @@ export async function publishArchive(
     months,
   };
   await writeArchiveIndex(bucket, index);
+  if (dirty) await db.prepare("DELETE FROM twitch_state WHERE key='archive-rewrite' AND value=?1").bind(dirty.value).run();
   return index;
 }

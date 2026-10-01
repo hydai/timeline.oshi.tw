@@ -21,7 +21,7 @@ describe("r2 snapshot io", () => {
     expect(SNAPSHOT_KEY).toBe("streams/v1/snapshot.json");
     const obj = await env.DATA_PUBLIC.get(SNAPSHOT_KEY);
     expect(obj).not.toBeNull();
-    expect(obj!.httpMetadata?.cacheControl).toBe("public, max-age=300, stale-if-error=86400");
+    expect(obj!.httpMetadata?.cacheControl).toBe("public, max-age=60, must-revalidate");
     expect(obj!.httpMetadata?.contentType).toBe("application/json");
   });
 

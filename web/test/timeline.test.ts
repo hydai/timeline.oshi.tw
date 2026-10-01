@@ -20,6 +20,13 @@ const mini: Snapshot = {
 };
 
 describe("buildTimeline", () => {
+  it("expires unapproved Twitch cache and merges history using its estimated end", () => {
+    const snapshot: Snapshot = { ...mini, live: [{ ...mini.live[0]!, platform: "twitch", videoId: "twitch:L", expiresAt: "2026-07-21T10:00:00Z" }],
+      recent: [{ ...mini.recent[0]!, platform: "twitch", videoId: "twitch:R", actualEnd: undefined, estimatedEnd: "2026-07-21T11:00:00Z", url: null }] };
+    const items = buildTimeline(snapshot, Date.parse("2026-07-21T10:00:00Z"));
+    expect(items.some(item => item.kind === "live")).toBe(false);
+    expect(items.find(item => item.kind === "recent")?.sortAt).toBe(Date.parse("2026-07-21T11:00:00Z"));
+  });
   it("orders live → upcoming(soonest, untimed last) → recent+milestones(newest)", () => {
     const ids = buildTimeline(mini).map((it) => (it.kind === "milestone" ? `M:${it.milestone.channelId}` : it.stream.videoId));
     expect(ids).toEqual(["L", "U1", "U2", "U0", "R", "M:A"]);

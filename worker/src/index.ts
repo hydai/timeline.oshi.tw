@@ -5,6 +5,11 @@ import { fetchRecentVideoIds } from "./rss";
 import { fetchVideoDetails, fetchChannelMeta, fetchUploadIds } from "./youtube";
 import { fetchRoster } from "./twvtuber";
 import { settleManualBackfill } from "./onboarding";
+import { handleTwitchWebhook, refreshTwitch, tryRefreshTwitch } from "./twitch";
+import { publishTwitchChanges, retryPendingTwitchPublication } from "./twitch-publish";
+import { boundedText } from "./twitch-api";
+import { setTwitchHistoryPermission, twitchAccounts } from "./twitch-db";
+import { z } from "zod";
 
 export function routeCron(cron: string): "heavy" | "light" | "none" {
   if (cron === "0 0,6,12,18 * * *") return "heavy";
@@ -35,12 +40,62 @@ export default {
   async scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     const mode = routeCron(event.cron);
     if (mode === "heavy") ctx.waitUntil(heavyRefresh(env, makeDeps(env)));
-    else if (mode === "light") ctx.waitUntil(lightRefresh(env, makeDeps(env)));
+    else if (mode === "light") ctx.waitUntil((async () => {
+      const now = new Date().toISOString();
+      await retryPendingTwitchPublication(env, now);
+      await tryRefreshTwitch(env, { now });
+      try { await lightRefresh(env, makeDeps(env)); }
+      catch (error) {
+        await publishTwitchChanges(env, new Date().toISOString());
+        throw error;
+      }
+    })());
   },
 
   // Optional curator-only manual trigger (token-gated) for debugging.
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
+    if (url.pathname === "/twitch/eventsub") {
+      if (request.method !== "POST") return new Response("method not allowed", { status: 405, headers: { Allow: "POST" } });
+      const response = await handleTwitchWebhook(request, env);
+      if (response.status === 204 && ctx) ctx.waitUntil((async () => {
+        await tryRefreshTwitch(env, { now: new Date().toISOString(), eventsOnly: true });
+        await publishTwitchChanges(env, new Date().toISOString());
+      })());
+      return response;
+    }
+    if (url.pathname === "/twitch/accounts" || url.pathname === "/twitch/history" || url.pathname === "/twitch/refresh") {
+      if (!env.MANUAL_TRIGGER_TOKEN || !await tokenMatches(request.headers.get("X-Trigger-Token") ?? "", env.MANUAL_TRIGGER_TOKEN)) {
+        return new Response("forbidden", { status: 403 });
+      }
+      const headers = { "Cache-Control": "no-store" };
+      if (url.pathname === "/twitch/accounts" && request.method === "GET") return Response.json(await twitchAccounts(env.DB), { headers });
+      if (url.pathname === "/twitch/refresh" && request.method === "POST") {
+        await refreshTwitch(env, { now: new Date().toISOString() });
+        await publishTwitchChanges(env, new Date().toISOString());
+        return Response.json({ ok: true }, { headers });
+      }
+      if (url.pathname === "/twitch/history" && request.method === "POST") {
+        let permission: { userId: string; granted: boolean; evidence: string };
+        try {
+          permission = z.object({ userId: z.string().regex(/^\d+$/), granted: z.boolean(), evidence: z.string().trim().min(1).max(1000) })
+            .parse(JSON.parse(await boundedText(request, 8192)));
+        } catch { return Response.json({ error: "userId, granted and evidence are required" }, { status: 400, headers }); }
+        const now = new Date().toISOString();
+        if (!await setTwitchHistoryPermission(env.DB, permission.userId, permission.granted, permission.evidence, now)) {
+          return Response.json({ error: "verified account not found" }, { status: 404, headers });
+        }
+        try { await publishTwitchChanges(env, now, true); }
+        catch (error) {
+          console.error(JSON.stringify({ message: "Twitch permission publication pending", error: error instanceof Error ? error.message : String(error) }));
+          return Response.json({ ok: false, permissionSaved: true, publicationPending: true,
+            error: "Permission saved, but publication is incomplete; retry this request or wait for the next five-minute cron." },
+          { status: 503, headers: { ...headers, "Retry-After": "5" } });
+        }
+        return Response.json({ ok: true }, { headers });
+      }
+      return new Response("method not allowed", { status: 405 });
+    }
     if (request.method === "POST" && url.pathname === "/refresh") {
       const token = env.MANUAL_TRIGGER_TOKEN;
       if (!token || request.headers.get("X-Trigger-Token") !== token) {
@@ -81,3 +136,9 @@ export default {
     return new Response("not found", { status: 404 });
   },
 };
+
+async function tokenMatches(actual: string, expected: string): Promise<boolean> {
+  const encoder = new TextEncoder();
+  const [a, b] = await Promise.all([actual, expected].map(value => crypto.subtle.digest("SHA-256", encoder.encode(value))));
+  return crypto.subtle.timingSafeEqual(a!, b!);
+}

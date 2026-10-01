@@ -23,7 +23,9 @@ async function readJson<T>(bucket: R2Bucket, key: string): Promise<T | null> {
 }
 
 export async function writeSnapshot(bucket: R2Bucket, snapshot: Snapshot): Promise<void> {
-  await writeJson(bucket, SNAPSHOT_KEY, snapshot);
+  await bucket.put(SNAPSHOT_KEY, JSON.stringify(snapshot), {
+    httpMetadata: { contentType: "application/json", cacheControl: "public, max-age=60, must-revalidate" },
+  });
 }
 
 export async function readSnapshot(bucket: R2Bucket): Promise<Snapshot | null> {

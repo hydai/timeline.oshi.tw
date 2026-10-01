@@ -237,7 +237,8 @@ export function archiveTotal(index: ArchiveIndex, kind: HistoryKind): number {
 export function itemArchiveMonth(item: TimelineItem): string | null {
   if (item.kind === "milestone") return item.milestone.date.slice(0, 7);
   if (item.kind !== "recent") return null;
-  const day = item.stream.actualEnd ? taipeiDayKey(item.stream.actualEnd) : "";
+  const end = item.stream.actualEnd ?? item.stream.estimatedEnd;
+  const day = end ? taipeiDayKey(end) : "";
   return day ? day.slice(0, 7) : null;
 }
 

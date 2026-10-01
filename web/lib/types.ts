@@ -12,11 +12,19 @@ export interface SnapshotChannel {
 }
 
 export interface SnapshotStream {
+  platform?: "youtube" | "twitch";
+  platformStreamId?: string;
+  categoryName?: string;
+  initialTitle?: string;
+  initialCategoryName?: string;
+  channelUrl?: string;
+  estimatedEnd?: string;
+  expiresAt?: string;
   videoId: string;
   channelId: string;
   title: string;
   thumbnail: string | null;
-  url: string;
+  url: string | null;
   actualStart?: string;
   scheduledStart?: string;
   actualEnd?: string;
